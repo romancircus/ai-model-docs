@@ -21,6 +21,13 @@
 10. [WebSocket Real-Time Monitoring](#websocket-real-time-monitoring)
 11. [Complete Python Client](#complete-python-client)
 12. [Workflow Recipe Library](#workflow-recipe-library)
+13. [RTX 5090 32GB Optimization Guide](#rtx-5090-32gb-optimization-guide)
+14. [SOTA Model Selection (January 2026)](#sota-model-selection-january-2026)
+15. [Agent Decision Trees](#agent-decision-trees)
+16. [Model-Specific Prompting Methodology](#model-specific-prompting-methodology)
+17. [Workflow Pattern Library](#workflow-pattern-library)
+18. [Programmatic Quality Assurance (VLM-Based)](#programmatic-quality-assurance-vlm-based)
+19. [Quick Reference Tables](#quick-reference-tables)
 
 ---
 
@@ -1625,12 +1632,105 @@ good_prompt = build_video_prompt(
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| `"Sizes must match"` | Latent/Image resolution mismatch | Add `ImageScale` or `LatentResize` node |
+| `"Sizes must match"` | Latent/Image resolution mismatch | Add `ImageScaleToTotalPixels` node (see below) |
 | `"Input undefined"` | Link points to non-existent node | Check node ID exists and has that slot |
 | `"CUDA out of memory"` | VRAM exhausted | Call `/free`, reduce resolution, use tiled VAE |
 | `"Model not found"` | Model file missing | Verify file in ComfyUI/models/ |
 | `"Invalid prompt"` | Malformed JSON | Validate JSON structure |
 | `"Connection refused"` | ComfyUI not running | Start server: `python main.py --highvram` |
+
+### Fixing "Sizes Must Match" Errors
+
+This error occurs when input images don't match the expected latent dimensions. Use `ImageScaleToTotalPixels` to normalize image sizes before processing.
+
+**Node Configuration:**
+```python
+{
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+        "image": ["load_image_node", 0],
+        "upscale_method": "lanczos",     # Best quality
+        "megapixels": 1.0,               # Target size (1MP = ~1024x1024)
+        "resolution_steps": 8            # Round to multiples of 8
+    }
+}
+```
+
+**Megapixel Reference Table:**
+
+| Target Resolution | Megapixels Value |
+|-------------------|------------------|
+| 512×512 | 0.26 |
+| 768×768 | 0.59 |
+| 1024×1024 | 1.05 |
+| 1280×720 (Video) | 0.92 |
+| 1296×1296 (Qwen) | 1.68 |
+| 2048×2048 | 4.19 |
+
+**Auto-Fix Function:**
+```python
+def add_image_scale_node(workflow: dict, image_node_id: str, target_mp: float = 1.0) -> dict:
+    """
+    Insert ImageScaleToTotalPixels node after image loading to prevent size mismatches.
+
+    Args:
+        workflow: Workflow dict
+        image_node_id: ID of the LoadImage node
+        target_mp: Target megapixels (default 1.0 for ~1024x1024)
+
+    Returns:
+        Modified workflow with scale node inserted
+    """
+    import copy
+    workflow = copy.deepcopy(workflow)
+
+    # Find next available node ID
+    max_id = max(int(k) for k in workflow.keys() if k.isdigit())
+    scale_node_id = str(max_id + 1)
+
+    # Insert scale node
+    workflow[scale_node_id] = {
+        "class_type": "ImageScaleToTotalPixels",
+        "inputs": {
+            "image": [image_node_id, 0],
+            "upscale_method": "lanczos",
+            "megapixels": target_mp,
+            "resolution_steps": 8
+        }
+    }
+
+    # Update all nodes that reference the original image node
+    for node_id, node in workflow.items():
+        if node_id == scale_node_id:
+            continue
+        for input_name, input_value in node.get("inputs", {}).items():
+            if isinstance(input_value, list) and input_value[0] == image_node_id:
+                if input_name in ["image", "images", "pixels"]:
+                    node["inputs"][input_name] = [scale_node_id, 0]
+
+    return workflow
+```
+
+**Error Recovery Logic:**
+```python
+async def execute_with_size_fix(workflow: dict, max_retries: int = 2) -> dict:
+    """Execute workflow with automatic size mismatch recovery."""
+
+    for attempt in range(max_retries):
+        try:
+            return await execute_workflow(workflow)
+        except Exception as e:
+            if "sizes must match" in str(e).lower() and attempt < max_retries - 1:
+                # Find LoadImage nodes and add scale nodes
+                for node_id, node in workflow.items():
+                    if node["class_type"] == "LoadImage":
+                        workflow = add_image_scale_node(workflow, node_id)
+                print(f"Added ImageScaleToTotalPixels, retrying...")
+            else:
+                raise
+
+    return await execute_workflow(workflow)
+```
 
 ### Error Recovery Code
 
@@ -1778,6 +1878,731 @@ if __name__ == "__main__":
 
 ---
 
+## RTX 5090 32GB Optimization Guide
+
+This section provides specific guidance for maximizing quality and performance on RTX 5090 (32GB VRAM).
+
+### Precision Selection Strategy
+
+**Core Principle:** With 32GB VRAM, prioritize **quality (precision)** for images and **context length** for video.
+
+| Model Type | Recommended Precision | VRAM Usage | Rationale |
+|------------|----------------------|------------|-----------|
+| **Image (FLUX.2, Qwen)** | `fp16` | 14-24 GB | 32GB handles fp16 easily; better color gradations |
+| **Video (LTX-2 19B)** | `fp8` (MANDATORY) | 19 GB | fp16 = 38GB → OOM! |
+| **Video (Wan 2.6)** | `fp8` | 16 GB | Leave headroom for frames/latents |
+| **Video (HunyuanVideo)** | `fp16` | 24 GB | Can fit with 8GB headroom |
+| **VAE** | `fp32` or `fp16` | 1-2 GB | Never quantize VAE (causes color shift) |
+| **T5 Text Encoder** | `fp16` | 8 GB | Full precision for Flux prompt understanding |
+
+### Agent Configuration for RTX 5090
+
+```python
+RTX_5090_CONFIG = {
+    "total_vram_gb": 32,
+    "safe_margin_gb": 4,  # Leave for OS/system
+    "usable_vram_gb": 28,
+
+    # Image model defaults
+    "image_precision": "fp16",
+    "image_max_resolution": 2048,
+
+    # Video model defaults
+    "video_precision": "fp8",
+    "video_max_frames": 241,  # LTX-2 limit
+
+    # Pipeline management
+    "unload_between_stages": True,  # For Image→Video pipelines
+}
+```
+
+### Pipeline Memory Management
+
+**Single Model Workflows:**
+```
+FLUX.2 (fp16, 24GB) + VAE (2GB) + T5 (8GB) = 34GB → Use fp8 for T5 OR keep-loaded strategy
+Qwen (fp16, 14GB) + VAE (2GB) + CLIP (3GB) = 19GB → Fits easily, keep loaded
+LTX-2 (fp8, 19GB) + Audio VAE (2GB) = 21GB → Fits with headroom
+```
+
+**Multi-Stage Pipeline Strategy:**
+
+```python
+# WRONG - Loading both models simultaneously
+# FLUX.2 (24GB) + Wan 2.6 (16GB) = 40GB → OOM!
+
+# CORRECT - Sequential unload
+async def image_to_video_pipeline():
+    # Stage 1: Generate image
+    image = await run_flux_workflow(...)
+
+    # CRITICAL: Unload image model before video
+    await client.free_memory(unload_models=True)
+    await asyncio.sleep(2)  # Allow VRAM to clear
+
+    # Stage 2: Generate video
+    video = await run_wan_workflow(image_path=image)
+```
+
+### Tiled VAE for High Resolutions
+
+For high-resolution outputs, use `VAEDecodeTiled` instead of `VAEDecode` to prevent VRAM spikes during decoding.
+
+**When to use Tiled VAE:**
+
+| Output Type | Standard VAEDecode | Use VAEDecodeTiled |
+|-------------|--------------------|--------------------|
+| Image | ≤ 2048×2048 | > 2048×2048 |
+| Video | ≤ 1280×720 | > 1280×720 or > 121 frames |
+
+**Tiled VAE Node Configuration:**
+```python
+{
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+        "samples": ["sampler_node", 0],
+        "vae": ["vae_loader", 0],
+        "tile_size": 512,      # 512 for images, 256 for video
+        "overlap": 64          # Overlap to prevent seams
+    }
+}
+```
+
+**Agent Logic:**
+```python
+def select_vae_decoder(width: int, height: int, frames: int = 1) -> str:
+    """Select appropriate VAE decoder based on output size."""
+    total_pixels = width * height * frames
+
+    # Threshold: ~2.1 billion pixels (2048x2048 or 1280x720x121)
+    if total_pixels > 2_100_000_000:
+        return "VAEDecodeTiled"
+    return "VAEDecode"
+```
+
+### OOM Prevention Checklist
+
+Before executing workflows on RTX 5090:
+
+- [ ] LTX-2 19B uses `_fp8.safetensors` variant (NOT fp16)
+- [ ] Wan 2.6 uses `_fp8.safetensors` variant
+- [ ] VAE is NOT quantized
+- [ ] Pipeline stages unload models between phases
+- [ ] Total estimated VRAM < 28GB
+- [ ] High-resolution outputs use `VAEDecodeTiled`
+
+---
+
+## SOTA Model Selection (January 2026)
+
+### Image Generation Models
+
+| Model | Best For | Prompt Style | Precision (5090) | VRAM |
+|-------|----------|--------------|------------------|------|
+| **FLUX.2-dev** | Photorealism, portraits, artistic | Natural language | fp16 | 24 GB |
+| **Qwen-Image-2512** | Text rendering, UI, layouts | Instructional | fp16 | 14 GB |
+| **Z-Image-Turbo** | Fast iteration, drafts | Natural language | fp16 | 12 GB |
+
+### Video Generation Models
+
+| Model | Best For | Audio | Max Duration | Precision (5090) | VRAM |
+|-------|----------|-------|--------------|------------------|------|
+| **LTX-2 19B** | Dialogue, music videos, lip-sync | Native input | 10s | fp8 (MUST) | 19 GB |
+| **Wan 2.6** | Action, cinematography, I2V | None | 5s | fp8 | 16 GB |
+| **HunyuanVideo 1.5** | Cinematic quality | None | 5s | fp16 | 24 GB |
+
+### Auxiliary Models
+
+| Model | Purpose | VRAM |
+|-------|---------|------|
+| Flux.2 Union ControlNet | Multi-mode (Canny/Depth/Pose) | 3 GB |
+| Qwen ControlNet (Canny) | Edge-guided generation | 2.5 GB |
+| IP-Adapter FaceID Plus v2 | Character consistency | 3 GB |
+| IP-Adapter Flux | Style transfer | 3.5 GB |
+
+---
+
+## Agent Decision Trees
+
+### Model Selection Tree
+
+```
+User Request
+│
+├── Is output VIDEO?
+│   │
+│   ├── YES
+│   │   │
+│   │   ├── Needs audio sync / lip-sync / dialogue?
+│   │   │   └── YES → LTX-2 19B (fp8)
+│   │   │
+│   │   ├── Needs complex physics / high-dynamic motion?
+│   │   │   └── YES → Wan 2.6 (fp8)
+│   │   │
+│   │   ├── Needs highest cinematic quality?
+│   │   │   └── YES → HunyuanVideo 1.5 (fp16)
+│   │   │
+│   │   └── General b-roll / background footage?
+│   │       └── → Wan 2.6 (fp8) - faster
+│   │
+│   └── NO (IMAGE)
+│       │
+│       ├── Contains specific text / logos / UI elements?
+│       │   └── YES → Qwen-Image-2512 (fp16)
+│       │
+│       ├── Photorealism / portraits / people?
+│       │   └── YES → FLUX.2-dev (fp16)
+│       │
+│       ├── Fast iteration / drafts / batch generation?
+│       │   └── YES → Z-Image-Turbo (fp16)
+│       │
+│       └── Artistic / stylized / general purpose?
+│           └── → FLUX.2-dev (fp16)
+```
+
+### Resolution Selection Tree
+
+```
+Target Output
+│
+├── VIDEO
+│   ├── Standard (16:9) → 1280×720 (720p sweet spot)
+│   ├── Vertical (9:16) → 720×1280 (mobile-first)
+│   └── Square (1:1) → 720×720
+│
+└── IMAGE
+    ├── Standard → 1024×1024 (base)
+    ├── Landscape → 1216×832 (optimal bucket)
+    ├── Portrait → 832×1216
+    ├── Ultra-wide → 1536×640
+    │
+    └── Can I go higher? (RTX 5090)
+        └── YES → Up to 2048×2048 without tiling
+```
+
+### CFG Selection Tree
+
+```
+Model
+│
+├── FLUX.2-dev
+│   └── Use FluxGuidance node (NOT cfg parameter)
+│       ├── Standard: guidance = 3.5
+│       ├── More adherence: guidance = 4.0
+│       └── Creative freedom: guidance = 3.0
+│
+├── Qwen-Image-2512
+│   └── Use ModelSamplingAuraFlow (shift = 3.1)
+│       └── cfg = 3.0 (fixed, like Flux)
+│
+├── LTX-2 / Wan 2.6
+│   ├── I2V (from image): cfg = 3.0
+│   └── T2V (text only): cfg = 5.0
+│
+└── HunyuanVideo
+    └── cfg = 6.0
+```
+
+---
+
+## Model-Specific Prompting Methodology
+
+### The Prompt Style Matrix
+
+| Model | Style | Key Principle |
+|-------|-------|---------------|
+| FLUX.2-dev | **Descriptive** | Describe what you SEE |
+| Qwen-Image | **Instructional** | Give layout COMMANDS |
+| Video (all) | **Motion** | Describe CHANGE, not state |
+
+### FLUX.2 Prompting (Descriptive Style)
+
+FLUX.2 responds best to natural language descriptions of the visual field.
+
+**Template:** `[Subject] [Action/Context] [Lighting] [Style]`
+
+```python
+# GOOD - Descriptive, natural language
+prompt = """
+A close-up photograph of an elderly woman with deep wrinkles,
+silver hair catching the light, natural window lighting from the left,
+shot on 35mm Kodak Portra 400 film, soft bokeh background.
+"""
+
+# BAD - Tag-based (works but suboptimal)
+prompt = "elderly woman, wrinkles, silver hair, portrait, 35mm, bokeh"
+```
+
+**FLUX.2 Negative Prompt Template:**
+```python
+negative = "blurry, low quality, distorted, watermark, text, logo, oversaturated"
+```
+
+### Qwen-Image Prompting (Instructional Style)
+
+Qwen responds to explicit layout instructions - it can understand spatial relationships.
+
+**Template:** `[Design Type]. [Element 1 at Position]. [Element 2 at Position]. [Style]`
+
+```python
+# GOOD - Instructional with positions
+prompt = """
+Design a movie poster.
+Title 'MIDNIGHT' at the top center, bold white font with blue glow.
+Silhouette of a detective in the middle, noir style.
+City skyline at the bottom, dark gradient.
+Overall style: minimalist, noir, dark blue and black palette.
+"""
+
+# BAD - Vague description
+prompt = "A movie poster for Midnight with a detective and city skyline"
+```
+
+**Qwen-Image Negative Prompt Template:**
+```python
+negative = "blurry, distorted text, misspelled, low quality, watermark, ugly, cropped"
+```
+
+### Video Prompting (Motion Style)
+
+**Critical Rule:** For video, describe the **DELTA** (change), NOT the static state.
+
+```python
+# WRONG - Describing static appearance
+bad_prompt = "A red dragon with scales and wings breathing fire in a cave"
+
+# CORRECT - Describing motion and change
+good_prompt = """
+The dragon turns its head slowly toward the camera,
+opens its massive jaws revealing glowing embers,
+flames erupt forward with volumetric fire and smoke,
+camera pulls back to reveal the full creature.
+"""
+```
+
+**Video Motion Prompt Template:**
+```python
+def build_video_prompt(motion: str, camera: str = "", atmosphere: str = "") -> str:
+    """
+    Build motion-focused video prompt.
+
+    Do NOT describe subject appearance - that comes from input image.
+    Only describe CHANGES: movement, camera, lighting shifts.
+    """
+    parts = [motion]
+    if camera:
+        parts.append(f"Camera: {camera}")
+    if atmosphere:
+        parts.append(f"Atmosphere: {atmosphere}")
+    return ", ".join(parts)
+
+# Usage
+prompt = build_video_prompt(
+    motion="the figure walks forward slowly, fabric flowing in the wind",
+    camera="slow dolly forward, slight low angle",
+    atmosphere="dust particles catching golden hour light"
+)
+```
+
+### Prompt Building Helper Functions
+
+```python
+def build_image_prompt(
+    subject: str,
+    context: str,
+    style: str,
+    model: str = "flux2"
+) -> dict:
+    """Build model-optimized image prompt."""
+
+    if model == "qwen":
+        # Qwen: Instructional style
+        prompt = f"{subject}. {context}. Style: {style}."
+        negative = "blurry, distorted text, misspelled, low quality"
+    else:
+        # FLUX.2: Descriptive style
+        prompt = f"{subject}, {context}, {style}, highly detailed, sharp focus"
+        negative = "blurry, low quality, distorted, watermark, text, logo"
+
+    return {"prompt": prompt, "negative": negative}
+
+
+def build_video_motion_prompt(
+    action: str,
+    camera_movement: str = None,
+    duration_hint: str = None
+) -> str:
+    """
+    Build video prompt focused on motion.
+
+    Args:
+        action: The motion/change happening
+        camera_movement: Camera motion (pan, dolly, zoom, etc.)
+        duration_hint: Pacing hint (slowly, rapidly, gradually)
+    """
+    parts = []
+
+    if duration_hint:
+        parts.append(f"{action} {duration_hint}")
+    else:
+        parts.append(action)
+
+    if camera_movement:
+        parts.append(f"camera {camera_movement}")
+
+    return ", ".join(parts)
+```
+
+---
+
+## Workflow Pattern Library
+
+### Pattern A: "The Director" (Text → Image → Audio-Reactive Video)
+
+**Goal:** Create a narrated scene with perfect text/signage.
+
+```python
+async def director_pipeline(
+    scene_description: str,
+    audio_path: str,
+    output_dir: Path
+):
+    """
+    Stage 1: Qwen generates image with text
+    Stage 2: External audio (TTS or music)
+    Stage 3: LTX-2 creates audio-reactive video
+    """
+    client = ComfyUIClient()
+
+    # Stage 1: Generate image with text using Qwen
+    image_workflow = create_workflow_from_template("qwen_poster_design", {
+        "PROMPT": f"Design a scene: {scene_description}",
+        "WIDTH": 1280,
+        "HEIGHT": 720,
+        "SEED": 42
+    })
+    result = await client.run_workflow(image_workflow)
+    image_path = extract_output_path(result)
+
+    # CRITICAL: Unload Qwen before LTX-2
+    await client.free_memory(unload_models=True)
+    await asyncio.sleep(2)
+
+    # Stage 2: Audio is provided externally
+    # (Could be TTS, music file, or voice recording)
+
+    # Stage 3: LTX-2 audio-reactive video
+    video_workflow = create_workflow_from_template("ltx2_audio_reactive", {
+        "IMAGE_PATH": image_path,
+        "AUDIO_PATH": audio_path,
+        "PROMPT": "the scene comes alive, subtle motion matching the audio rhythm",
+        "FRAMES": 121,
+        "SEED": 42
+    })
+    result = await client.run_workflow(video_workflow)
+
+    return extract_output_path(result)
+```
+
+### Pattern B: "The Upscaler" (Draft → Upscale → Refine)
+
+**Goal:** 4K highly detailed output with fast iteration.
+
+```python
+async def upscaler_pipeline(
+    prompt: str,
+    output_dir: Path,
+    target_resolution: int = 2048
+):
+    """
+    Stage 1: Fast draft with FLUX.2 (fp8)
+    Stage 2: Model-based upscale
+    Stage 3: Refinement pass with FLUX.2 (fp16)
+    """
+    client = ComfyUIClient()
+
+    # Stage 1: Fast draft (fp8 for speed)
+    draft_workflow = create_workflow_from_template("flux2_txt2img", {
+        "PROMPT": prompt,
+        "WIDTH": 1024,
+        "HEIGHT": 1024,
+        "SEED": 42
+    })
+    # Override to fp8 for speed
+    draft_workflow["1"]["inputs"]["weight_dtype"] = "fp8_e4m3fn"
+
+    result = await client.run_workflow(draft_workflow)
+    draft_path = extract_output_path(result)
+
+    # Stage 2: Upscale 2x
+    upscale_workflow = create_workflow_from_template("upscale_2x", {
+        "IMAGE_PATH": draft_path,
+        "UPSCALE_MODEL": "4x-UltraSharp.pth"
+    })
+    result = await client.run_workflow(upscale_workflow)
+    upscaled_path = extract_output_path(result)
+
+    # Stage 3: Refine with FLUX.2 (fp16 for quality)
+    refine_workflow = create_workflow_from_template("flux2_img2img", {
+        "IMAGE_PATH": upscaled_path,
+        "PROMPT": f"{prompt}, hyper-detailed, 4k texture, sharp",
+        "DENOISE": 0.35,  # CRITICAL: Low denoise preserves details
+        "SEED": 42
+    })
+    result = await client.run_workflow(refine_workflow)
+
+    return extract_output_path(result)
+```
+
+### Pattern C: "The Animator" (Reference → Style Transfer → Video)
+
+**Goal:** Transform a reference image into a new style, then animate it.
+
+```python
+async def animator_pipeline(
+    reference_image: Path,
+    style_prompt: str,
+    motion_prompt: str,
+    output_dir: Path
+):
+    """
+    Stage 1: Qwen + ControlNet for style transfer
+    Stage 2: Wan 2.6 for high-motion video
+    """
+    client = ComfyUIClient()
+
+    # Upload reference image
+    uploaded_ref = await client.upload_image(reference_image)
+
+    # Stage 1: Style transfer with Qwen ControlNet
+    style_workflow = create_workflow_from_template("qwen_controlnet_canny", {
+        "IMAGE_PATH": uploaded_ref,
+        "PROMPT": style_prompt,
+        "CONTROL_STRENGTH": 0.85,
+        "WIDTH": 1280,
+        "HEIGHT": 720,
+        "SEED": 42
+    })
+    result = await client.run_workflow(style_workflow)
+    styled_path = extract_output_path(result)
+
+    # CRITICAL: Unload image model
+    await client.free_memory(unload_models=True)
+    await asyncio.sleep(2)
+
+    # Upload styled image for video stage
+    uploaded_styled = await client.upload_image(styled_path)
+
+    # Stage 2: Animate with Wan 2.6
+    video_workflow = create_workflow_from_template("wan26_img2vid", {
+        "IMAGE_PATH": uploaded_styled,
+        "PROMPT": motion_prompt,  # Motion only!
+        "FRAMES": 121,
+        "SEED": 42
+    })
+    result = await client.run_workflow(video_workflow)
+
+    return extract_output_path(result)
+```
+
+### Pattern D: "The Iterator" (Generate → Evaluate → Refine)
+
+**Goal:** Quality iteration loop with parameter optimization.
+
+```python
+async def iterator_pipeline(
+    prompt: str,
+    target_quality: str = "high",
+    max_iterations: int = 5
+):
+    """
+    Iteration loop:
+    1. Generate initial image
+    2. Evaluate quality (VLM or human)
+    3. Adjust parameters and regenerate
+    4. Repeat until satisfied
+    """
+    client = ComfyUIClient()
+
+    # Initial parameters
+    cfg = 3.5
+    seed = 42
+
+    for i in range(max_iterations):
+        # Generate
+        workflow = create_workflow_from_template("flux2_txt2img", {
+            "PROMPT": prompt,
+            "SEED": seed,
+            "WIDTH": 1024,
+            "HEIGHT": 1024
+        })
+        # Apply current CFG
+        workflow["7"]["inputs"]["guidance"] = cfg
+
+        result = await client.run_workflow(workflow)
+        asset_id = result["outputs"][0]["asset_id"]
+
+        # View and evaluate
+        info = await client.view_output(asset_id)
+        print(f"Iteration {i+1}: CFG={cfg}, Seed={seed}")
+        print(f"Preview: {info['url']}")
+
+        # Quality check (could be VLM-based)
+        quality_score = await evaluate_quality(asset_id)
+
+        if quality_score >= 0.9:
+            print("Quality target met!")
+            return await client.publish_asset(asset_id, target_filename="final.png")
+
+        # Adjust parameters for next iteration
+        if quality_score < 0.5:
+            # Low quality - try different seed
+            seed = None  # Random new seed
+        elif quality_score < 0.7:
+            # Medium quality - increase CFG
+            cfg = min(cfg + 0.5, 5.0)
+        else:
+            # Good quality - small tweaks
+            cfg = cfg + 0.2
+            seed = seed + 1
+
+    # Return best attempt
+    return await client.publish_asset(asset_id, target_filename="final.png")
+```
+
+---
+
+## Programmatic Quality Assurance (VLM-Based)
+
+Before returning generated outputs to users, agents should validate quality using Vision Language Models (VLMs). The MassMediaFactory MCP provides `qa_output()` for automated quality checks.
+
+### VLM QA Setup
+
+**Requirements:**
+```bash
+# Install Ollama and pull a VLM
+ollama pull qwen2.5-vl:7b
+```
+
+**Check VLM Availability:**
+```python
+# MCP Tool
+result = check_vlm_available(model="qwen2.5-vl:7b")
+# → {"available": true, "model": "qwen2.5-vl:7b"}
+```
+
+### QA Checks Available
+
+| Check | What It Detects |
+|-------|-----------------|
+| `prompt_match` | Does image match the original prompt? |
+| `artifacts` | Visual artifacts, distortions, blur? |
+| `faces` | Face/hand issues (extra fingers, asymmetry)? |
+| `text` | Text rendering issues (misspelled, distorted)? |
+| `composition` | Overall composition quality? |
+
+### Automated QA Workflow
+
+```python
+async def generate_with_qa(
+    workflow: dict,
+    prompt: str,
+    quality_threshold: float = 0.7,
+    max_retries: int = 3
+) -> dict:
+    """
+    Generate output with automatic quality validation.
+    Retries with different seed if quality is below threshold.
+    """
+    for attempt in range(max_retries):
+        # Generate
+        result = await execute_workflow(workflow)
+        output = await wait_for_completion(result["prompt_id"])
+        asset_id = output["outputs"][0]["asset_id"]
+
+        # QA Check
+        qa_result = await qa_output(
+            asset_id=asset_id,
+            prompt=prompt,
+            checks=["prompt_match", "artifacts", "faces"]
+        )
+
+        # Evaluate
+        if qa_result["overall_score"] >= quality_threshold:
+            return {
+                "asset_id": asset_id,
+                "qa_score": qa_result["overall_score"],
+                "qa_details": qa_result["checks"],
+                "attempts": attempt + 1
+            }
+
+        # Log failure reason
+        failed_checks = [
+            check for check, score in qa_result["checks"].items()
+            if score < quality_threshold
+        ]
+        print(f"Attempt {attempt + 1} failed: {failed_checks}")
+
+        # Retry with new seed
+        workflow = inject_parameters(workflow, {"SEED": None})
+
+    # Return best attempt with warning
+    return {
+        "asset_id": asset_id,
+        "qa_score": qa_result["overall_score"],
+        "warning": "Quality threshold not met after max retries"
+    }
+```
+
+### QA Decision Tree
+
+```
+Generated Output
+│
+├── Run qa_output(checks=["prompt_match", "artifacts"])
+│
+├── overall_score >= 0.8?
+│   └── YES → Return to user ✓
+│
+├── overall_score >= 0.5?
+│   ├── prompt_match failed?
+│   │   └── Regenerate with refined prompt
+│   ├── artifacts failed?
+│   │   └── Regenerate with higher steps / different seed
+│   └── faces failed?
+│       └── Regenerate with negative prompt: "extra fingers, asymmetrical"
+│
+└── overall_score < 0.5?
+    └── Log error, notify user, suggest manual review
+```
+
+### MCP Tool Reference
+
+```python
+# Run QA on generated asset
+qa_result = qa_output(
+    asset_id="abc-123-def",
+    prompt="a majestic dragon breathing fire",
+    checks=["prompt_match", "artifacts", "faces", "composition"]
+)
+
+# Response format
+{
+    "asset_id": "abc-123-def",
+    "overall_score": 0.85,
+    "checks": {
+        "prompt_match": 0.9,
+        "artifacts": 0.8,
+        "faces": 0.85,
+        "composition": 0.85
+    },
+    "feedback": "Image matches prompt well. Minor artifacts in background.",
+    "model": "qwen2.5-vl:7b"
+}
+```
+
+---
+
 ## Quick Reference Tables
 
 ### Checkpoint Output Slots
@@ -1788,29 +2613,40 @@ if __name__ == "__main__":
 | UNETLoader | MODEL | - | - |
 | DualCLIPLoader | CLIP | - | - |
 | VAELoader | VAE | - | - |
+| LTXVLoader | MODEL | CLIP | VAE |
 
-### Sampler Compatibility
+### Sampler Compatibility (January 2026)
 
-| Model | Recommended Sampler | Scheduler | Steps |
-|-------|---------------------|-----------|-------|
-| SDXL | dpmpp_2m_sde | karras | 30-40 |
-| Flux | euler | simple | 20-25 |
-| Qwen | euler | simple | 25 |
-| LTX | euler | custom (LTXVScheduler) | 20 |
+| Model | Recommended Sampler | Scheduler | Steps | CFG/Guidance |
+|-------|---------------------|-----------|-------|--------------|
+| FLUX.2 | euler | simple | 20 | FluxGuidance: 3.5 |
+| Qwen | euler | simple | 25 | cfg: 3.0 (AuraFlow shift: 3.1) |
+| LTX-2 | euler | LTXVScheduler | 20 | cfg: 3.0 |
+| Wan 2.6 | euler | WanVideoScheduler | 30 | cfg: 5.0 |
+| HunyuanVideo | dpmpp_2m | karras | 30 | cfg: 6.0 |
 
-### Resolution Guide
+### Resolution Guide (RTX 5090 Optimized)
 
-| Model | Recommended | Notes |
-|-------|-------------|-------|
-| SD 1.5 | 512×512 | Can stretch to 768 |
-| SDXL | 1024×1024 | Best at 1:1 or 16:9 |
-| Flux | 1024×1024 | Flexible, multiples of 16 |
-| Qwen | 1296×1296 | Up to 2512×2512 |
-| LTX-Video | 1280×720 | 720p or 1080p |
+| Model | Native | Max (32GB) | Aspect Ratios |
+|-------|--------|------------|---------------|
+| FLUX.2 | 1024×1024 | 2048×2048 | 1:1, 16:9, 9:16 |
+| Qwen | 1296×1296 | 2512×2512 | Flexible |
+| LTX-2 | 1280×720 | 1920×1080 | 16:9, 9:16 |
+| Wan 2.6 | 848×480 | 1280×720 | 16:9 |
+
+### RTX 5090 VRAM Quick Reference
+
+| Model | fp16 VRAM | fp8 VRAM | Recommendation |
+|-------|-----------|----------|----------------|
+| FLUX.2-dev | 24 GB | 12 GB | **Use fp16** |
+| Qwen-Image | 14 GB | 7 GB | **Use fp16** |
+| LTX-2 19B | 38 GB ⚠️ | 19 GB | **MUST use fp8** |
+| Wan 2.6 | 32 GB | 16 GB | **Use fp8** |
+| HunyuanVideo | 24 GB | 12 GB | **Use fp16** |
 
 ---
 
-*Document Version: 3.1 | Last Updated: January 2026 | Optimized for Agent Orchestration*
+*Document Version: 4.0 | Last Updated: January 2026 | Optimized for RTX 5090 + Claude Code Opus 4.5*
 
 **Related Documentation:**
 - [MASSMEDIAFACTORY_MCP.md](./MASSMEDIAFACTORY_MCP.md) - **MCP Server for asset iteration & publishing**
