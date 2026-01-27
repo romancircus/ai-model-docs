@@ -196,6 +196,23 @@ Note: Prompt should describe MOTION, not the image content
 | LTXVSampler | steps | 20-50 | 30 | Higher = better quality |
 | LTXVSampler | cfg | 1.0-7.0 | 3.5 | Prompt adherence |
 
+### Official Lightricks I2V Workflow Settings (January 2026)
+
+**Source:** [github.com/Lightricks/ComfyUI-LTXVideo/example_workflows](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/master/example_workflows/)
+
+| Parameter | T2V | I2V | Notes |
+|-----------|-----|-----|-------|
+| **sampler** | euler | **res_2s** | res_2s produces higher quality for I2V |
+| **cfg** | 3.0-3.5 | **4.0** | Higher CFG for better motion in I2V |
+| **steps** | 20-30 | **25** | Balanced quality/speed |
+| **strength** | N/A | **0.6** | I2V identity preservation (0.5-0.7) |
+| **scheduler** | LTXVScheduler | LTXVScheduler | Same for both |
+
+**Key I2V Differences:**
+- Use `res_2s` sampler instead of euler for better motion quality
+- CFG 4.0 (not 3.0) to strengthen prompt adherence and increase visible motion
+- Prompt should describe **motion only**, NOT the image content (the image is the visual anchor)
+
 ---
 
 ## Direct Python Usage
