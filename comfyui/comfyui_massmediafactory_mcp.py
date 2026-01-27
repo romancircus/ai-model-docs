@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-ComfyUI Dynamic MCP Server
+ComfyUI MassMediaFactory MCP Server
 
-Exposes low-level ComfyUI primitives so Claude can:
+Exposes ComfyUI primitives so Claude can:
 1. Discover available models and nodes
 2. Build workflows dynamically
 3. Execute and retrieve outputs
 
 Usage:
-    claude mcp add --transport stdio --scope user comfyui-dynamic \
-        -- python ~/Applications/ai-model-docs/comfyui/comfyui_dynamic_mcp.py
+    claude mcp add --transport stdio --scope user comfyui-massmediafactory \
+        -- python ~/Applications/ai-model-docs/comfyui/comfyui_massmediafactory_mcp.py
 """
 
 import json
@@ -29,7 +29,7 @@ except ImportError:
 # Configuration
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://solapsvs.taila4c432.ts.net:8188")
 
-mcp = FastMCP("comfyui-dynamic")
+mcp = FastMCP("comfyui-massmediafactory")
 
 
 def _request(endpoint: str, method: str = "GET", data: dict = None) -> dict:

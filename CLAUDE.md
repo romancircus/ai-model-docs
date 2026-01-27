@@ -122,7 +122,7 @@ When this repo is added as a submodule at `docs/ai-models/`:
 |------|---------|---------|
 | `comfyui/Get_Started_ComfyUI.md` | Node-based workflow guide | Image & video pipelines |
 | `comfyui/COMFYUI_ORCHESTRATION.md` | **Agent orchestration guide** | Programmatic workflow generation |
-| `comfyui/comfyui_dynamic_mcp.py` | **Dynamic MCP server** | Runtime discovery + execution |
+| `comfyui/comfyui_massmediafactory_mcp.py` | **MassMediaFactory MCP server** | Runtime discovery + execution |
 
 **Key ComfyUI Features:**
 - N.O.D.E. workflow framework (Navigate, Orchestrate, Diffuse, Export)
@@ -140,7 +140,7 @@ When this repo is added as a submodule at `docs/ai-models/`:
 - Model-specific settings (Flux, SDXL, Qwen, LTX)
 - S.A.C.S. prompting framework (Subject, Action, Context, Style)
 
-**For Dynamic MCP (comfyui_dynamic_mcp.py):**
+**For MassMediaFactory MCP (comfyui_massmediafactory_mcp.py):**
 - Runtime discovery: `list_checkpoints()`, `search_nodes()`, `get_node_info()`
 - Execution: `execute_workflow()`, `wait_for_completion()`
 - Memory management: `free_memory()`, `get_system_stats()`
@@ -199,7 +199,7 @@ When this repo is added as a submodule at `docs/ai-models/`:
 | CPU-only image generation | Qwen-Image-2512 GGUF | `qwen/Get_Started_Qwen_Image.md` |
 | Image with text rendering | Flux or Qwen-Image-2512 | `comfyui/Get_Started_ComfyUI.md` |
 | Node-based workflows | ComfyUI | `comfyui/Get_Started_ComfyUI.md` |
-| **Agent-orchestrated local gen** | Dynamic MCP + ComfyUI | `comfyui/comfyui_dynamic_mcp.py` |
+| **Agent-orchestrated local gen** | MassMediaFactory MCP + ComfyUI | `comfyui/comfyui_massmediafactory_mcp.py` |
 
 ### Video Generation
 
@@ -236,13 +236,13 @@ When this repo is added as a submodule at `docs/ai-models/`:
 | Component | Purpose | Doc |
 |-----------|---------|-----|
 | **COMFYUI_ORCHESTRATION.md** | Knowledge: workflow schema, node connections, model settings, templates | `comfyui/COMFYUI_ORCHESTRATION.md` |
-| **comfyui_dynamic_mcp.py** | Execution: discover models, run workflows, get outputs | `comfyui/comfyui_dynamic_mcp.py` |
+| **comfyui_massmediafactory_mcp.py** | Execution: discover models, run workflows, get outputs | `comfyui/comfyui_massmediafactory_mcp.py` |
 
 **Setup:**
 ```bash
 pip install mcp
-claude mcp add --transport stdio --scope user comfyui-dynamic \
-    -- python ~/Applications/ai-model-docs/comfyui/comfyui_dynamic_mcp.py
+claude mcp add --transport stdio --scope user comfyui-massmediafactory \
+    -- python ~/Applications/ai-model-docs/comfyui/comfyui_massmediafactory_mcp.py
 ```
 
 ---
