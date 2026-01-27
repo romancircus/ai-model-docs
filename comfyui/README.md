@@ -7,12 +7,28 @@ Node-based GUI for Stable Diffusion and modern diffusion models (Flux, SDXL, SD3
 | File | Purpose | Audience |
 |------|---------|----------|
 | `Get_Started_ComfyUI.md` | Comprehensive guide for image & video generation | All users |
-| `COMFYUI_ORCHESTRATION.md` | **Agent orchestration guide** - programmatic workflow generation, API patterns, multi-stage pipelines | **Coding Agents (Claude Code, Cursor, etc.)** |
+| `COMFYUI_ORCHESTRATION.md` | **Agent orchestration guide** - programmatic workflow generation, API patterns, multi-stage pipelines | **Coding Agents** |
+| `MASSMEDIAFACTORY_MCP.md` | **MCP Server documentation** - tool reference, asset iteration, publishing | **Coding Agents** |
 | `COMFYUI_WORKFLOWS_REFERENCE.md` | Workflow templates (coming soon) | All users |
 
 ## For Coding Agents
 
-If you're an LLM agent orchestrating ComfyUI, start with **`COMFYUI_ORCHESTRATION.md`** which includes:
+If you're an LLM agent orchestrating ComfyUI:
+
+### Option 1: MCP Server (Recommended)
+
+Use **`MASSMEDIAFACTORY_MCP.md`** with the MassMediaFactory MCP server:
+
+```bash
+claude mcp add --transport stdio --scope user comfyui-massmediafactory \
+    -- comfyui-massmediafactory-mcp
+```
+
+Features: SOTA model awareness, VRAM management, asset iteration, publishing.
+
+### Option 2: Direct API
+
+Use **`COMFYUI_ORCHESTRATION.md`** which includes:
 
 - Workflow JSON schema and generation rules
 - Node connection type system

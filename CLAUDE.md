@@ -122,12 +122,12 @@ When this repo is added as a submodule at `docs/ai-models/`:
 |------|---------|---------|
 | `comfyui/Get_Started_ComfyUI.md` | Node-based workflow guide | Image & video pipelines |
 | `comfyui/COMFYUI_ORCHESTRATION.md` | **Agent orchestration guide** | Programmatic workflow generation |
-| `comfyui/comfyui_massmediafactory_mcp.py` | **MassMediaFactory MCP server** | Runtime discovery + execution |
+| `comfyui/MASSMEDIAFACTORY_MCP.md` | **MCP Server documentation** | Tool reference, asset iteration |
 
 **Key ComfyUI Features:**
 - N.O.D.E. workflow framework (Navigate, Orchestrate, Diffuse, Export)
-- SD1.5, SDXL, Flux, SD3.5, Qwen-Image support
-- Video generation (SVD, AnimateDiff, LTX-Video)
+- SDXL, Flux.2, Qwen-Image, LTX-2 support (SOTA January 2026)
+- Video generation (LTX-Video, Wan 2.6, HunyuanVideo 1.5)
 - ControlNet, LoRA, IP-Adapter integration
 - API-first for programmatic control
 - JSON workflow serialization
@@ -140,10 +140,13 @@ When this repo is added as a submodule at `docs/ai-models/`:
 - Model-specific settings (Flux, SDXL, Qwen, LTX)
 - S.A.C.S. prompting framework (Subject, Action, Context, Style)
 
-**For MassMediaFactory MCP (comfyui_massmediafactory_mcp.py):**
-- Runtime discovery: `list_checkpoints()`, `search_nodes()`, `get_node_info()`
+**For MassMediaFactory MCP (MASSMEDIAFACTORY_MCP.md):**
+- Discovery: `list_checkpoints()`, `search_nodes()`, `get_node_info()`
 - Execution: `execute_workflow()`, `wait_for_completion()`
-- Memory management: `free_memory()`, `get_system_stats()`
+- **Asset Iteration**: `regenerate()`, `list_assets()`, `view_output()`
+- **Publishing**: `publish_asset()`, `set_publish_dir()`
+- **SOTA Awareness**: `get_sota_models()`, `check_model_freshness()`
+- **VRAM Management**: `estimate_vram()`, `check_model_fits()`
 
 ### Qwen Models (Alibaba)
 
@@ -236,13 +239,21 @@ When this repo is added as a submodule at `docs/ai-models/`:
 | Component | Purpose | Doc |
 |-----------|---------|-----|
 | **COMFYUI_ORCHESTRATION.md** | Knowledge: workflow schema, node connections, model settings, templates | `comfyui/COMFYUI_ORCHESTRATION.md` |
-| **comfyui_massmediafactory_mcp.py** | Execution: discover models, run workflows, get outputs | `comfyui/comfyui_massmediafactory_mcp.py` |
+| **MASSMEDIAFACTORY_MCP.md** | MCP tool reference: iteration, publishing, SOTA awareness | `comfyui/MASSMEDIAFACTORY_MCP.md` |
 
-**Setup:**
+**Setup (from PyPI):**
 ```bash
-pip install mcp
+pip install comfyui-massmediafactory-mcp
 claude mcp add --transport stdio --scope user comfyui-massmediafactory \
-    -- python ~/Applications/ai-model-docs/comfyui/comfyui_massmediafactory_mcp.py
+    -- comfyui-massmediafactory-mcp
+```
+
+**Setup (from source):**
+```bash
+git clone https://github.com/romancircus/comfyui-massmediafactory-mcp
+cd comfyui-massmediafactory-mcp && pip install -e .
+claude mcp add --transport stdio --scope user comfyui-massmediafactory \
+    -- python -m comfyui_massmediafactory_mcp.server
 ```
 
 ---
