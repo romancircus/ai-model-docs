@@ -17,9 +17,10 @@
 6. [Multi-Stage Pipeline Patterns](#multi-stage-pipeline-patterns)
 7. [Parameter Injection System](#parameter-injection-system)
 8. [Error Handling & Recovery](#error-handling--recovery)
-9. [WebSocket Real-Time Monitoring](#websocket-real-time-monitoring)
-10. [Complete Python Client](#complete-python-client)
-11. [Workflow Recipe Library](#workflow-recipe-library)
+9. [Asset Iteration & Publishing](#asset-iteration--publishing)
+10. [WebSocket Real-Time Monitoring](#websocket-real-time-monitoring)
+11. [Complete Python Client](#complete-python-client)
+12. [Workflow Recipe Library](#workflow-recipe-library)
 
 ---
 
@@ -866,7 +867,294 @@ async def execute_with_retry(workflow, max_retries=3):
 
 ---
 
-## WebSocket Real-Time Monitoring
+## Asset Iteration & Publishing
+
+When orchestrating ComfyUI workflows, agents need to iterate on generated outputs without re-prompting. The **MassMediaFactory MCP** provides asset tracking, regeneration, and publishing capabilities.
+
+### Asset Registry Concept
+
+Every generated output is registered with a unique `asset_id` that enables:
+
+1. **Viewing** - Get preview URLs and metadata
+2. **Regeneration** - Re-run with parameter tweaks (CFG, seed, prompt)
+3. **Browsing** - List recent generations by session
+4. **Publishing** - Export to web directories with compression
+
+```python
+# Asset lifecycle
+result = execute_workflow(workflow)
+output = wait_for_completion(result["prompt_id"])
+
+# Each output includes an asset_id
+asset_id = output["outputs"][0]["asset_id"]
+# → "a1b2c3d4-5678-90ab-cdef-1234567890ab"
+```
+
+### Iteration Workflow
+
+```
+1. GENERATE initial output
+2. VIEW the result (get URL, preview)
+3. DECIDE: acceptable or needs adjustment?
+4. REGENERATE with tweaks if needed
+5. REPEAT until satisfied
+6. PUBLISH final asset to web directory
+```
+
+### Regenerate Function
+
+Modify parameters without rebuilding the entire workflow:
+
+```python
+def regenerate(
+    asset_id: str,
+    prompt: str = None,      # Override prompt
+    negative_prompt: str = None,
+    cfg: float = None,       # Override CFG scale
+    seed: int = None,        # None = new random seed
+    steps: int = None,       # Override sampling steps
+    denoise: float = None,   # Override denoise strength
+) -> dict:
+    """
+    Re-run generation with parameter overrides.
+
+    Returns:
+        {"prompt_id": "...", "status": "queued", "parameters": {...}}
+    """
+```
+
+**Usage patterns:**
+
+```python
+# Initial generation
+result = execute_workflow(workflow)
+output = wait_for_completion(result["prompt_id"])
+asset_id = output["outputs"][0]["asset_id"]
+
+# View the result
+info = view_output(asset_id)
+print(f"Preview: {info['url']}")
+print(f"Prompt: {info['prompt_preview']}")
+
+# Not right? Try different seed (same parameters)
+result = regenerate(asset_id, seed=None)  # Random new seed
+output = wait_for_completion(result["prompt_id"])
+
+# Better, but need more detail? Increase CFG
+result = regenerate(output["outputs"][0]["asset_id"], cfg=4.5)
+output = wait_for_completion(result["prompt_id"])
+
+# Tweak the prompt
+result = regenerate(
+    output["outputs"][0]["asset_id"],
+    prompt="a majestic dragon with iridescent scales, volumetric lighting, 8k",
+    seed=42  # Lock seed to compare prompt changes
+)
+```
+
+### Session-Based Browsing
+
+All generations within a session are tracked for easy browsing:
+
+```python
+def list_assets(
+    session_id: str = None,  # Filter by session (default: current)
+    limit: int = 20,         # Max results
+) -> dict:
+    """
+    List recent generations.
+
+    Returns:
+        {
+            "assets": [
+                {
+                    "asset_id": "...",
+                    "filename": "qwen_00001_.png",
+                    "prompt_preview": "a majestic dragon...",
+                    "created_at": "2026-01-27T10:30:45Z",
+                    "parameters": {"cfg": 3.5, "steps": 25, ...}
+                },
+                ...
+            ],
+            "count": 5
+        }
+    """
+
+# Generate multiple variations
+for seed in [42, 123, 456, 789]:
+    workflow = create_workflow_from_template("qwen_txt2img", {
+        "PROMPT": "a dragon breathing fire",
+        "SEED": seed
+    })
+    execute_workflow(workflow["workflow"])
+    wait_for_completion(...)
+
+# Browse all from this session
+assets = list_assets(limit=10)
+for asset in assets["assets"]:
+    print(f"{asset['asset_id'][:8]}: {asset['prompt_preview']}")
+
+# Pick the best
+best_asset = assets["assets"][2]  # Third one looks best
+```
+
+### View Output Details
+
+Get full metadata and preview URL:
+
+```python
+def view_output(asset_id: str) -> dict:
+    """
+    Get asset details for viewing.
+
+    Returns:
+        {
+            "asset_id": "...",
+            "url": "http://localhost:8188/view?filename=...",
+            "filename": "qwen_00001_.png",
+            "mime_type": "image/png",
+            "prompt_preview": "first 200 chars of prompt...",
+            "parameters": {
+                "cfg": 3.5,
+                "steps": 25,
+                "seed": 42,
+                ...
+            },
+            "created_at": "2026-01-27T10:30:45Z"
+        }
+    """
+```
+
+### Publishing Assets
+
+Export final assets to web directories for deployment:
+
+```python
+def publish_asset(
+    asset_id: str,
+    target_filename: str = None,   # Explicit filename (demo mode)
+    manifest_key: str = None,      # Key for manifest.json (library mode)
+    publish_dir: str = None,       # Target directory (auto-detected)
+    web_optimize: bool = True,     # Apply compression
+) -> dict:
+    """
+    Publish asset to web directory.
+
+    Returns:
+        {
+            "success": True,
+            "url": "/gen/hero_image.png",
+            "path": "/project/public/gen/hero_image.png",
+            "bytes": 245000,
+            "manifest_updated": True  # If manifest_key provided
+        }
+    """
+```
+
+**Demo mode** (explicit filename):
+
+```python
+# Perfect for one-off assets
+result = publish_asset(
+    asset_id=best_asset["asset_id"],
+    target_filename="hero_image.png"
+)
+print(f"Published to: {result['url']}")
+# → "/gen/hero_image.png"
+```
+
+**Library mode** (manifest tracking):
+
+```python
+# For managed asset libraries
+result = publish_asset(
+    asset_id=best_asset["asset_id"],
+    manifest_key="product_shot_1"
+)
+# Auto-generates filename with timestamp
+# Updates manifest.json for asset management
+```
+
+### Complete Iteration Example
+
+```python
+"""
+Agent Workflow: Generate hero image with iteration
+"""
+
+from massmediafactory import (
+    create_workflow_from_template,
+    execute_workflow,
+    wait_for_completion,
+    view_output,
+    regenerate,
+    list_assets,
+    publish_asset
+)
+
+# 1. Generate initial image
+workflow = create_workflow_from_template("qwen_txt2img", {
+    "PROMPT": "a majestic phoenix rising from flames, photorealistic, 8k",
+    "SEED": 42,
+    "WIDTH": 1024,
+    "HEIGHT": 1024
+})
+
+result = execute_workflow(workflow["workflow"])
+output = wait_for_completion(result["prompt_id"])
+asset_id = output["outputs"][0]["asset_id"]
+
+# 2. View result
+info = view_output(asset_id)
+print(f"Generated: {info['url']}")
+# Agent or VLM evaluates the image...
+
+# 3. Iterate - try higher CFG for more detail
+result = regenerate(asset_id, cfg=4.0, seed=None)
+output = wait_for_completion(result["prompt_id"])
+asset_id = output["outputs"][0]["asset_id"]
+
+# 4. Iterate again - refine prompt
+result = regenerate(
+    asset_id,
+    prompt="a majestic phoenix rising from volcanic flames, iridescent feathers, volumetric lighting, 8k macro photography",
+    cfg=3.5
+)
+output = wait_for_completion(result["prompt_id"])
+asset_id = output["outputs"][0]["asset_id"]
+
+# 5. Browse all attempts
+assets = list_assets(limit=5)
+for i, asset in enumerate(assets["assets"]):
+    print(f"{i+1}. {asset['asset_id'][:8]}: CFG={asset['parameters'].get('cfg')}")
+
+# 6. Publish the best one
+final_result = publish_asset(
+    asset_id=asset_id,
+    target_filename="phoenix_hero.png"
+)
+print(f"Published: {final_result['url']}")
+# → "/gen/phoenix_hero.png"
+```
+
+### Asset Registry TTL
+
+Assets expire after a configurable TTL (default 24 hours):
+
+```python
+# If asset expired
+result = view_output("expired-asset-id")
+# → {"error": "ASSET_NOT_FOUND_OR_EXPIRED", "asset_id": "..."}
+
+# Solution: Re-generate from workflow
+# Assets store full workflow for regeneration
+metadata = get_asset_metadata(asset_id)  # Before expiration
+original_workflow = metadata["workflow"]  # Save this!
+```
+
+**Environment variable:** `COMFY_MCP_ASSET_TTL_HOURS=24`
+
+---
 
 ### Message Types
 
@@ -1104,6 +1392,62 @@ class ComfyUIClient:
                             return output_path
 
         raise Exception("No output found in workflow result")
+
+    # --- Asset Iteration Methods ---
+
+    def view_output(self, asset_id: str) -> Dict:
+        """Get asset details for viewing."""
+        # This would typically call the MCP server
+        # For direct API usage, get from history
+        raise NotImplementedError("Use MassMediaFactory MCP for asset iteration")
+
+    def regenerate(
+        self,
+        asset_id: str,
+        prompt: str = None,
+        cfg: float = None,
+        seed: int = None,
+        steps: int = None,
+    ) -> str:
+        """
+        Regenerate an asset with parameter overrides.
+
+        Returns:
+            prompt_id for the new generation
+        """
+        # This would typically call the MCP server
+        raise NotImplementedError("Use MassMediaFactory MCP for asset iteration")
+
+    def list_session_assets(self, limit: int = 20) -> list:
+        """List recent assets from this session."""
+        # This would typically call the MCP server
+        raise NotImplementedError("Use MassMediaFactory MCP for asset iteration")
+
+    def publish_asset(
+        self,
+        asset_id: str,
+        target_filename: str = None,
+        manifest_key: str = None,
+    ) -> Dict:
+        """Publish asset to web directory."""
+        # This would typically call the MCP server
+        raise NotImplementedError("Use MassMediaFactory MCP for asset iteration")
+
+
+# --- MassMediaFactory MCP Integration ---
+# For full asset iteration support, use the MCP server:
+#
+#   claude mcp add --transport stdio --scope user comfyui-massmediafactory \
+#       -- comfyui-massmediafactory-mcp
+#
+# Then use the MCP tools:
+#   - execute_workflow() / wait_for_completion()
+#   - view_output(asset_id)
+#   - regenerate(asset_id, cfg=4.0, seed=None)
+#   - list_assets(limit=10)
+#   - publish_asset(asset_id, target_filename="hero.png")
+#
+# See: MASSMEDIAFACTORY_MCP.md for complete documentation
 ```
 
 ---
@@ -1466,9 +1810,10 @@ if __name__ == "__main__":
 
 ---
 
-*Document Version: 3.0 | Last Updated: January 2026 | Optimized for Agent Orchestration*
+*Document Version: 3.1 | Last Updated: January 2026 | Optimized for Agent Orchestration*
 
 **Related Documentation:**
+- [MASSMEDIAFACTORY_MCP.md](./MASSMEDIAFACTORY_MCP.md) - **MCP Server for asset iteration & publishing**
 - [Get_Started_ComfyUI.md](./Get_Started_ComfyUI.md) - Core concepts and node reference
 - [LTX Video Guide](../ltx/Get_Started_LTX.md) - Video generation specifics
 - [Qwen Image Guide](../qwen/Get_Started_Qwen_Image.md) - Photorealistic generation
