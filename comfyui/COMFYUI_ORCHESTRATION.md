@@ -27,7 +27,11 @@
 16. [Model-Specific Prompting Methodology](#model-specific-prompting-methodology)
 17. [Workflow Pattern Library](#workflow-pattern-library)
 18. [Programmatic Quality Assurance (VLM-Based)](#programmatic-quality-assurance-vlm-based)
-19. [Quick Reference Tables](#quick-reference-tables)
+19. [Text-Based Editing (Inpainting)](#text-based-editing-inpainting)
+20. [Auto-Refiner Quality Loop](#auto-refiner-quality-loop)
+21. [LoRA Style Library](#lora-style-library)
+22. [Audio & Speech Generation](#audio--speech-generation)
+23. [Quick Reference Tables](#quick-reference-tables)
 
 ---
 
@@ -2599,6 +2603,413 @@ qa_result = qa_output(
     "feedback": "Image matches prompt well. Minor artifacts in background.",
     "model": "qwen2.5-vl:7b"
 }
+```
+
+---
+
+## Text-Based Editing (Inpainting)
+
+**The Agent's Mask Problem:** Agents cannot "click" or "draw" masks like humans can in a GUI. The solution is **text-based segmentation** using CLIPSeg, GroundingDINO, or Segment Anything Model (SAM).
+
+### Mental Model for Agents
+
+```
+To edit a specific object in an image:
+1. Describe the object textually → CLIPSeg generates a mask
+2. Feed image + mask to VAEEncodeForInpaint
+3. Describe replacement → standard diffusion process
+```
+
+### Segmentation Node Options
+
+| Node | Best For | Precision | Speed |
+|------|----------|-----------|-------|
+| **CLIPSeg** | General objects, simple descriptions | Medium | Fast |
+| **GroundingDINO** | Precise object detection, multiple instances | High | Medium |
+| **SAM (Segment Anything)** | Complex shapes, fine edges | Highest | Slow |
+
+### Template: `flux2_edit_by_text.json`
+
+**Use Case:** Replace DALL-E's "Select & Edit" functionality
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `IMAGE_PATH` | Path to image to edit | `"input/photo.png"` |
+| `SELECT_TEXT` | Text description of object to select | `"the red car"` |
+| `REPLACE_PROMPT` | What the selected area should become | `"a blue sports car"` |
+| `DENOISE` | 0.7-0.9 for major changes, 0.3-0.5 for subtle | `0.85` |
+
+**Example Usage:**
+
+```python
+# Change a person's shirt color
+workflow = load_template("flux2_edit_by_text")
+workflow = inject_parameters(workflow, {
+    "IMAGE_PATH": "input/portrait.png",
+    "SELECT_TEXT": "the person's shirt",
+    "REPLACE_PROMPT": "wearing a bright red silk shirt, same lighting and pose",
+    "DENOISE": 0.75
+})
+result = await execute_workflow(workflow)
+```
+
+### Segmentation Tips for Agents
+
+1. **Be specific:** "the cat on the left" not just "cat"
+2. **Use relationships:** "the object behind the person"
+3. **Include color/size:** "the large blue vase"
+4. **For faces:** Use FaceDetailer node instead (better quality)
+
+### When CLIPSeg Fails
+
+If CLIPSeg generates a poor mask:
+
+```
+Poor Mask Detected?
+│
+├── Object too small → Use GroundingDINO with box output
+├── Multiple instances → Add "leftmost" / "largest" to description
+├── Complex shape → Use SAM with point prompts
+└── Text/Logo → Use binary threshold on grayscale
+```
+
+---
+
+## Auto-Refiner Quality Loop
+
+**Pattern:** Generate → VLM Check → Auto-Fix → Return
+
+Instead of just checking quality, the agent should automatically *fix* common issues using specialized nodes.
+
+### Auto-Fixer Decision Tree
+
+```
+VLM QA Result
+│
+├── "Face issues detected" (score < 0.7)
+│   └── ACTION: Run FaceDetailer workflow
+│       ├── Input: Generated image
+│       ├── Auto-mask: Face detection (no text needed)
+│       ├── Denoise: 0.3 (subtle refinement)
+│       └── Output: Fixed face, rest unchanged
+│
+├── "Hand/finger issues detected" (score < 0.6)
+│   └── ACTION: Run Inpaint with hand fix
+│       ├── SELECT_TEXT: "person's hands"
+│       ├── REPLACE_PROMPT: "{original_prompt}, anatomically correct hands"
+│       └── Denoise: 0.5
+│
+├── "Artifacts/blur in background" (score < 0.7)
+│   └── ACTION: Run Inpaint with low denoise
+│       ├── SELECT_TEXT: "blurry background area"
+│       ├── REPLACE_PROMPT: "{original_prompt} background"
+│       └── Denoise: 0.4
+│
+└── "Text rendering issues" (score < 0.6)
+    └── ACTION: Regenerate with Qwen-Image
+        └── Qwen has superior text rendering
+```
+
+### FaceDetailer Workflow Pattern
+
+```python
+async def auto_fix_face(asset_id: str, original_prompt: str) -> str:
+    """Automatically fix face issues using FaceDetailer."""
+
+    # FaceDetailer auto-detects and masks faces
+    workflow = {
+        "1": {"class_type": "LoadImage", "inputs": {"image": asset_id}},
+        "2": {
+            "class_type": "FaceDetailer",
+            "inputs": {
+                "image": ["1", 0],
+                "model": ["3", 0],  # Same model as original
+                "clip": ["4", 0],
+                "vae": ["5", 0],
+                "positive": ["6", 0],  # Original prompt
+                "negative": ["7", 0],
+                "denoise": 0.3,  # Low denoise for refinement
+                "feather": 5,
+                "force_inpaint": True
+            }
+        },
+        # ... model loaders ...
+    }
+
+    result = await execute_workflow(workflow)
+    return result["outputs"][0]["asset_id"]
+```
+
+### Complete Auto-Refiner Loop
+
+```python
+async def generate_with_auto_refine(
+    workflow: dict,
+    prompt: str,
+    max_refinements: int = 2
+) -> dict:
+    """Generate with automatic quality refinement."""
+
+    result = await execute_workflow(workflow)
+    asset_id = result["outputs"][0]["asset_id"]
+
+    for i in range(max_refinements):
+        # Run QA
+        qa = await qa_output(
+            asset_id=asset_id,
+            prompt=prompt,
+            checks=["faces", "artifacts", "prompt_match"]
+        )
+
+        if qa["overall_score"] >= 0.85:
+            return {"asset_id": asset_id, "qa": qa, "refinements": i}
+
+        # Auto-fix based on lowest scoring check
+        lowest_check = min(qa["checks"], key=qa["checks"].get)
+
+        if lowest_check == "faces" and qa["checks"]["faces"] < 0.7:
+            asset_id = await auto_fix_face(asset_id, prompt)
+        elif lowest_check == "artifacts":
+            # Regenerate with higher steps
+            workflow = inject_parameters(workflow, {"STEPS": 30, "SEED": None})
+            result = await execute_workflow(workflow)
+            asset_id = result["outputs"][0]["asset_id"]
+        else:
+            # General retry with new seed
+            workflow = inject_parameters(workflow, {"SEED": None})
+            result = await execute_workflow(workflow)
+            asset_id = result["outputs"][0]["asset_id"]
+
+    return {"asset_id": asset_id, "qa": qa, "refinements": max_refinements}
+```
+
+---
+
+## LoRA Style Library
+
+**The Agent's Style Problem:** Midjourney handles styles via keywords (`--style raw`, `--niji`). ComfyUI needs specific LoRA files and trigger words.
+
+### Style Mapping Table
+
+| User Intent | LoRA Filename | Trigger Word | Strength | Best Model |
+|-------------|---------------|--------------|----------|------------|
+| **Anime** | `anime_style_xl.safetensors` | `anime style` | 0.8 | FLUX.2 |
+| **Anime (Detailed)** | `animetarot_v2.safetensors` | `detailed anime` | 0.7 | FLUX.2 |
+| **Photorealistic** | `add_detail_xl.safetensors` | `detailed` | 0.5 | FLUX.2 |
+| **Cinematic** | `cinematic_xl.safetensors` | `cinematic lighting` | 0.7 | FLUX.2 |
+| **Oil Painting** | `oil_painting_xl.safetensors` | `oil painting style` | 0.8 | FLUX.2 |
+| **Watercolor** | `watercolor_v3.safetensors` | `watercolor painting` | 0.75 | FLUX.2 |
+| **3D Render** | `3d_render_style.safetensors` | `3d render` | 0.7 | FLUX.2 |
+| **Pixel Art** | `pixel_art_xl.safetensors` | `pixel art` | 0.9 | FLUX.2 |
+| **Claymation** | `claymation_style.safetensors` | `claymation style` | 0.85 | FLUX.2 |
+| **Vintage Photo** | `vintage_film.safetensors` | `vintage photograph` | 0.6 | FLUX.2 |
+| **Line Art** | `lineart_xl.safetensors` | `line art, lineart` | 0.8 | FLUX.2 |
+| **Sticker** | `sticker_style.safetensors` | `sticker design` | 0.9 | Qwen |
+| **Logo** | `logo_design_xl.safetensors` | `logo design` | 0.8 | Qwen |
+| **Fashion** | `fashion_photography.safetensors` | `fashion photo` | 0.6 | FLUX.2 |
+| **Architecture** | `architectural_render.safetensors` | `architectural` | 0.7 | FLUX.2 |
+
+### LoRA Application Pattern
+
+```python
+def apply_style_lora(workflow: dict, style: str) -> dict:
+    """Apply style LoRA based on user intent."""
+
+    LORA_MAPPING = {
+        "anime": {
+            "file": "anime_style_xl.safetensors",
+            "trigger": "anime style",
+            "strength": 0.8
+        },
+        "cinematic": {
+            "file": "cinematic_xl.safetensors",
+            "trigger": "cinematic lighting",
+            "strength": 0.7
+        },
+        # ... more mappings
+    }
+
+    if style.lower() not in LORA_MAPPING:
+        return workflow  # No LoRA needed
+
+    lora = LORA_MAPPING[style.lower()]
+
+    # Insert LoRA loader after model loader
+    workflow["lora_1"] = {
+        "class_type": "LoraLoader",
+        "inputs": {
+            "model": ["1", 0],  # From model loader
+            "clip": ["2", 0],   # From CLIP loader
+            "lora_name": lora["file"],
+            "strength_model": lora["strength"],
+            "strength_clip": lora["strength"]
+        }
+    }
+
+    # Update downstream connections to use LoRA output
+    # ... connection updates ...
+
+    # Add trigger word to prompt
+    prompt_node = find_prompt_node(workflow)
+    original_prompt = workflow[prompt_node]["inputs"]["text"]
+    workflow[prompt_node]["inputs"]["text"] = f"{lora['trigger']}, {original_prompt}"
+
+    return workflow
+```
+
+### Style Detection from User Request
+
+```python
+def detect_requested_style(user_prompt: str) -> str | None:
+    """Extract style intent from natural language request."""
+
+    STYLE_KEYWORDS = {
+        "anime": ["anime", "manga", "japanese animation"],
+        "cinematic": ["cinematic", "movie", "film", "dramatic lighting"],
+        "oil_painting": ["oil painting", "painted", "artistic"],
+        "watercolor": ["watercolor", "watercolour", "aquarelle"],
+        "3d_render": ["3d", "render", "blender", "octane"],
+        "pixel_art": ["pixel", "8-bit", "retro game"],
+        "claymation": ["clay", "stop motion", "claymation"],
+        "vintage": ["vintage", "retro", "old photo", "film grain"],
+    }
+
+    prompt_lower = user_prompt.lower()
+
+    for style, keywords in STYLE_KEYWORDS.items():
+        if any(kw in prompt_lower for kw in keywords):
+            return style
+
+    return None
+```
+
+### Multi-LoRA Stacking
+
+For complex styles, stack multiple LoRAs:
+
+```python
+# Anime + Cinematic = Dramatic Anime
+workflow = apply_style_lora(workflow, "anime")      # Primary style
+workflow = apply_style_lora(workflow, "cinematic")  # Secondary (lower strength)
+
+# Adjust secondary LoRA strength
+workflow["lora_2"]["inputs"]["strength_model"] = 0.4
+workflow["lora_2"]["inputs"]["strength_clip"] = 0.4
+```
+
+---
+
+## Audio & Speech Generation
+
+**Replaces:** ElevenLabs TTS ($5-330/month)
+
+ComfyUI supports text-to-speech (TTS) and voice cloning through custom nodes like F5-TTS and Kokoro-82M. This enables complete audio-visual pipelines without cloud API dependencies.
+
+### TTS Model Options
+
+| Model | Quality | Speed | Voice Cloning | VRAM |
+|-------|---------|-------|---------------|------|
+| **F5-TTS** | Excellent | Medium | Yes | ~4GB |
+| **Kokoro-82M** | Good | Fast | No | ~1GB |
+| **ChatTTS** | Good | Fast | Limited | ~2GB |
+
+### Installation
+
+```bash
+# Via ComfyUI Manager
+1. Open ComfyUI Manager
+2. Search: "F5-TTS" or "Kokoro"
+3. Install and restart ComfyUI
+```
+
+### Templates Available
+
+| Template | Use Case |
+|----------|----------|
+| `audio_tts_f5.json` | Basic TTS (text to speech) |
+| `audio_tts_voice_clone.json` | Clone voice from reference audio |
+
+### Audio-Video Sync Formula
+
+**Critical for LTX-2 and video pipelines:**
+
+```
+video_frames = audio_duration_seconds × fps
+
+Example:
+- Audio: 5.5 seconds
+- Target FPS: 24
+- Required frames: 5.5 × 24 = 132 frames
+```
+
+### TTS → Video Pipeline Pattern
+
+```python
+async def talking_head_pipeline(
+    portrait_image: str,
+    text_to_speak: str,
+    reference_voice: str = None
+) -> str:
+    """Generate talking head video from portrait + text."""
+
+    # Stage 1: Generate audio
+    if reference_voice:
+        tts_workflow = load_template("audio_tts_voice_clone")
+        tts_workflow = inject_parameters(tts_workflow, {
+            "TEXT": text_to_speak,
+            "REFERENCE_AUDIO": reference_voice,
+            "REFERENCE_TEXT": "...",  # Transcript of reference
+        })
+    else:
+        tts_workflow = load_template("audio_tts_f5")
+        tts_workflow = inject_parameters(tts_workflow, {
+            "TEXT": text_to_speak
+        })
+
+    tts_result = await execute_workflow(tts_workflow)
+    audio_path = tts_result["outputs"][0]["path"]
+    audio_duration = tts_result["metadata"]["duration_seconds"]
+
+    # Stage 2: Calculate video frames
+    fps = 24
+    required_frames = int(audio_duration * fps) + 1
+
+    # Stage 3: Generate lip-synced video with LTX-2
+    video_workflow = load_template("ltx2_audio_reactive")
+    video_workflow = inject_parameters(video_workflow, {
+        "IMAGE_PATH": portrait_image,
+        "AUDIO_PATH": audio_path,
+        "FRAMES": required_frames,
+        "PROMPT": "speaking naturally, subtle head movements, lip sync"
+    })
+
+    video_result = await execute_workflow(video_workflow)
+    return video_result["outputs"][0]["asset_id"]
+```
+
+### Voice Cloning Best Practices
+
+1. **Reference audio length:** 3-10 seconds (sweet spot: 5-7 seconds)
+2. **Audio quality:** Clear speech, no background noise, consistent volume
+3. **Reference text:** Must exactly match what's spoken in reference
+4. **Generated text:** Similar style/length to reference works best
+
+### Quality Checklist
+
+```
+TTS Generation Checklist
+│
+├── Reference audio clean? (no music, no noise)
+├── Reference text matches audio exactly?
+├── Generated text appropriate length? (< 500 chars)
+└── Speed setting reasonable? (0.8-1.2 typical)
+
+If quality poor:
+├── Try different seed
+├── Reduce text length
+├── Use cleaner reference audio
+└── Switch to Kokoro for faster iteration
 ```
 
 ---
