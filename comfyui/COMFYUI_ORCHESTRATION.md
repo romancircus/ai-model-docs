@@ -31,7 +31,8 @@
 20. [Auto-Refiner Quality Loop](#auto-refiner-quality-loop)
 21. [LoRA Style Library](#lora-style-library)
 22. [Audio & Speech Generation](#audio--speech-generation)
-23. [Quick Reference Tables](#quick-reference-tables)
+23. [Advanced Workflow Templates](#advanced-workflow-templates)
+24. [Quick Reference Tables](#quick-reference-tables)
 
 ---
 
@@ -3142,6 +3143,240 @@ If quality poor:
 
 ---
 
+## Advanced Workflow Templates
+
+### Image Enhancement Templates
+
+| Template | Description | Replaces | VRAM |
+|----------|-------------|----------|------|
+| `flux2_ultimate_upscale.json` | 4K/8K detail enhancement with neural upscaling | Magnific AI | 16GB |
+| `flux2_face_id.json` | Maintain face identity in generations | Midjourney --cref | 18GB |
+| `flux2_grounding_dino_inpaint.json` | Precise object detection + inpainting | DALL-E inpaint | 12GB |
+
+#### Ultimate Upscale (`flux2_ultimate_upscale.json`)
+
+**Use Case:** Enhance images to 4K/8K while adding photorealistic detail.
+
+**Parameters:**
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `IMAGE_PATH` | Path to image to upscale | Required |
+| `SCALE_FACTOR` | 0.5 = 2x final, 1.0 = 4x final | 0.5 |
+| `DENOISE` | 0.3-0.4 detail enhancement, 0.5-0.7 creative | 0.35 |
+| `TILE_SIZE` | Larger = faster, smaller = more detail | 512 |
+| `SEED` | Random seed | 42 |
+
+**How it works:**
+1. 4x pixel upscale with UltraSharp neural network
+2. Scale to target size via SCALE_FACTOR
+3. Latent refinement with FLUX.2 for detail enhancement
+4. Tiled VAE decode for memory efficiency
+
+```python
+# Example: 2x upscale with detail enhancement
+workflow = load_template("flux2_ultimate_upscale")
+workflow = inject_parameters(workflow, {
+    "IMAGE_PATH": "input/photo_1024.png",
+    "SCALE_FACTOR": 0.5,  # 1024 → 2048
+    "DENOISE": 0.35,
+    "SEED": 42
+})
+```
+
+#### Face ID (`flux2_face_id.json`)
+
+**Use Case:** Generate images with consistent face identity (like Midjourney --cref).
+
+**Parameters:**
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `FACE_IMAGE` | Path to reference face (clear frontal photo) | Required |
+| `PROMPT` | Generation prompt | Required |
+| `FACE_STRENGTH` | 0.7-0.9 strong likeness, 0.5-0.7 subtle | 0.85 |
+
+**Tips:**
+- Use clear, well-lit frontal face photos
+- Multiple reference images improve consistency
+- Lower strength allows more style variation
+- Works best with realistic prompts
+
+```python
+# Example: Generate character in different setting
+workflow = load_template("flux2_face_id")
+workflow = inject_parameters(workflow, {
+    "FACE_IMAGE": "reference/my_character.png",
+    "PROMPT": "same person wearing a business suit, office background, professional headshot",
+    "FACE_STRENGTH": 0.85
+})
+```
+
+#### GroundingDINO + SAM Inpainting (`flux2_grounding_dino_inpaint.json`)
+
+**Use Case:** High-precision object selection and replacement.
+
+**Comparison with CLIPSeg:**
+| Method | Precision | Speed | Best For |
+|--------|-----------|-------|----------|
+| GroundingDINO+SAM | Higher | Slower | Complex shapes, precise edges |
+| CLIPSeg | Good | Fast | Abstract concepts, soft edges |
+
+**Parameters:**
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `IMAGE_PATH` | Path to image to edit | Required |
+| `SELECT_TEXT` | Object to detect (e.g., "car", "person") | Required |
+| `REPLACE_PROMPT` | What the area should become | Required |
+| `DETECTION_THRESHOLD` | 0.2-0.4 general, 0.4-0.6 high-confidence | 0.3 |
+
+```python
+# Example: Replace detected object
+workflow = load_template("flux2_grounding_dino_inpaint")
+workflow = inject_parameters(workflow, {
+    "IMAGE_PATH": "input/street.png",
+    "SELECT_TEXT": "car",
+    "REPLACE_PROMPT": "empty parking spot, asphalt",
+    "DETECTION_THRESHOLD": 0.3,
+    "DENOISE": 0.85
+})
+```
+
+### Video Processing Templates
+
+| Template | Description | Replaces | VRAM |
+|----------|-------------|----------|------|
+| `video_stitch.json` | Combine multiple video clips | Premiere Pro (basic) | 4GB |
+| `video_inpaint.json` | Edit objects in video | Kling O1 (basic) | 16GB |
+
+#### Video Stitch (`video_stitch.json`)
+
+**Use Case:** Combine 2 video clips into a sequence with audio.
+
+**Parameters:**
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `VIDEO_1` | Path to first video clip | Required |
+| `VIDEO_2` | Path to second video clip | Required |
+| `OUTPUT_FPS` | Target framerate | 24 |
+
+**Limitations:**
+- All clips should have same resolution for best results
+- Audio is preserved from both clips
+- For complex edits, use dedicated video editor
+
+```python
+# Example: Combine intro + main content
+workflow = load_template("video_stitch")
+workflow = inject_parameters(workflow, {
+    "VIDEO_1": "clips/intro.mp4",
+    "VIDEO_2": "clips/main_content.mp4",
+    "OUTPUT_FPS": 24
+})
+```
+
+#### Video Inpaint (`video_inpaint.json`)
+
+**Use Case:** Edit/replace static objects across video frames.
+
+**Status:** EXPERIMENTAL - Uses static mask (not true temporal propagation)
+
+**Parameters:**
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `VIDEO_PATH` | Path to video to edit | Required |
+| `SELECT_TEXT` | Object to mask (e.g., "the red car") | Required |
+| `REPLACE_PROMPT` | What it should become | Required |
+| `DENOISE` | 0.5-0.7 replacement, 0.3-0.5 subtle changes | 0.7 |
+
+**Limitations:**
+- Object must NOT move significantly (static masking)
+- Best for: background replacement, static object removal
+- Not suitable for: tracking moving objects
+
+**Better alternatives for moving objects:**
+- **ProPainter**: True temporal consistency
+- **Kling O1 API**: Cloud-based video editing
+
+```python
+# Example: Remove static watermark
+workflow = load_template("video_inpaint")
+workflow = inject_parameters(workflow, {
+    "VIDEO_PATH": "input/video_with_watermark.mp4",
+    "SELECT_TEXT": "the watermark in corner",
+    "REPLACE_PROMPT": "clean background, same color and texture",
+    "DENOISE": 0.7
+})
+```
+
+### Style Learning System
+
+The MassMediaFactory MCP includes a style learning module that stores prompts, seeds, ratings, and outcomes to improve future generations.
+
+**Features:**
+- Record successful generation parameters
+- Find similar past generations with good ratings
+- Auto-suggest prompt enhancements based on history
+- Save and reuse style presets
+
+**MCP Tools:**
+| Tool | Description |
+|------|-------------|
+| `record_generation` | Store generation parameters and outcome |
+| `rate_generation` | Rate a generation (0.0-1.0) |
+| `find_similar_prompts` | Find past generations similar to a prompt |
+| `suggest_prompt_enhancement` | Get suggestions based on past successes |
+| `save_style_preset` | Save a reusable style configuration |
+| `get_style_preset` | Load a saved style preset |
+| `get_statistics` | Overall generation statistics |
+
+**Usage Pattern:**
+```python
+# 1. After generating an image
+record_id = await record_generation(
+    prompt="a majestic dragon",
+    model="flux2-dev",
+    seed=42,
+    tags=["fantasy", "creature"],
+    outcome="success"
+)
+
+# 2. When user approves quality
+await rate_generation(record_id, rating=0.9, notes="Great detail")
+
+# 3. For future similar requests
+suggestions = await suggest_prompt_enhancement(
+    prompt="a fierce dragon",
+    model="flux2-dev",
+    style_tags=["fantasy"]
+)
+# Returns: similar successful prompts, recommended additions, best seeds
+```
+
+### Complete Template Reference
+
+| Category | Template | Description |
+|----------|----------|-------------|
+| **Image** | `flux2_txt2img.json` | FLUX.2 text-to-image |
+| | `qwen_txt2img.json` | Qwen text-to-image (text rendering) |
+| | `qwen_poster_design.json` | Qwen poster/layout design |
+| | `flux2_union_controlnet.json` | Multi-ControlNet conditioning |
+| | `flux2_lora_stack.json` | Apply multiple LoRAs |
+| | `flux2_edit_by_text.json` | CLIPSeg-based inpainting |
+| | `flux2_grounding_dino_inpaint.json` | Precision inpainting |
+| | `flux2_ultimate_upscale.json` | 4K/8K enhancement |
+| | `flux2_face_id.json` | Face identity preservation |
+| **Video** | `ltx2_txt2vid.json` | LTX-2 text-to-video |
+| | `ltx2_audio_reactive.json` | LTX-2 with audio sync |
+| | `wan26_img2vid.json` | Wan 2.6 image-to-video |
+| | `video_stitch.json` | Combine video clips |
+| | `video_inpaint.json` | Edit video (static mask) |
+| **Audio** | `qwen3_tts_custom_voice.json` | Qwen3 TTS (presets) |
+| | `qwen3_tts_voice_design.json` | Qwen3 TTS (AI design) |
+| | `qwen3_tts_voice_clone.json` | Qwen3 TTS (voice clone) |
+| | `chatterbox_tts.json` | Chatterbox (emotions) |
+| | `audio_tts_f5.json` | F5-TTS (legacy) |
+
+---
+
 ## Quick Reference Tables
 
 ### Checkpoint Output Slots
@@ -3185,7 +3420,13 @@ If quality poor:
 
 ---
 
-*Document Version: 4.0 | Last Updated: January 2026 | Optimized for RTX 5090 + Claude Code Opus 4.5*
+*Document Version: 5.0 | Last Updated: January 2026 | Optimized for RTX 5090 + Claude Code Opus 4.5*
+
+**New in 5.0:**
+- Added Image Enhancement templates (upscale, face ID, precision inpainting)
+- Added Video Processing templates (stitch, inpaint)
+- Added Style Learning system documentation
+- Complete template reference table
 
 **Related Documentation:**
 - [MASSMEDIAFACTORY_MCP.md](./MASSMEDIAFACTORY_MCP.md) - **MCP Server for asset iteration & publishing**
