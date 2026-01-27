@@ -122,7 +122,8 @@ When this repo is added as a submodule at `docs/ai-models/`:
 |------|---------|---------|
 | `comfyui/Get_Started_ComfyUI.md` | Node-based workflow guide | Image & video pipelines |
 | `comfyui/COMFYUI_ORCHESTRATION.md` | **Agent orchestration guide** | Programmatic workflow generation |
-| `comfyui/PIXELLE_MCP_SETUP.md` | **MCP integration guide** | Claude Code + ComfyUI tools |
+| `comfyui/comfyui_dynamic_mcp.py` | **Dynamic MCP server** | Claude builds workflows on-the-fly |
+| `comfyui/PIXELLE_MCP_SETUP.md` | **Template MCP guide** | Pre-made workflow tools |
 
 **Key ComfyUI Features:**
 - N.O.D.E. workflow framework (Navigate, Orchestrate, Diffuse, Export)
@@ -140,12 +141,17 @@ When this repo is added as a submodule at `docs/ai-models/`:
 - Model-specific settings (Flux, SDXL, Qwen, LTX)
 - S.A.C.S. prompting framework (Subject, Action, Context, Style)
 
-**For MCP Integration (PIXELLE_MCP_SETUP.md):**
+**For Dynamic MCP (comfyui_dynamic_mcp.py) - Recommended:**
+- Claude discovers models/nodes via `list_checkpoints()`, `search_nodes()`
+- Claude builds workflow JSON dynamically
+- Execute with `execute_workflow()`, poll with `wait_for_completion()`
+- Full flexibility for arbitrary generation tasks
+
+**For Template MCP (PIXELLE_MCP_SETUP.md) - Optional:**
+- Pre-made workflows become callable tools
 - Zero-code workflow → MCP tool conversion
-- Claude Code MCP server setup
 - Parameter DSL syntax (`$param.field!:description`)
-- Pre-built workflows (Flux, Qwen, Wan2.2, LTX)
-- Systemd service configuration
+- Web UI for interactive testing
 
 ### Qwen Models (Alibaba)
 
@@ -237,15 +243,21 @@ When this repo is added as a submodule at `docs/ai-models/`:
 
 | Approach | Best For | Doc |
 |----------|----------|-----|
-| **Pixelle-MCP** (Recommended) | Zero-code workflow tools, web UI, multi-LLM | `comfyui/PIXELLE_MCP_SETUP.md` |
+| **Dynamic MCP** (Recommended) | Claude builds arbitrary workflows, full flexibility | `comfyui/comfyui_dynamic_mcp.py` |
+| **Pixelle-MCP** | Pre-made workflow templates, web UI, repeatable pipelines | `comfyui/PIXELLE_MCP_SETUP.md` |
 | Direct API | Custom Python scripts, full control | `comfyui/COMFYUI_ORCHESTRATION.md` |
 
-**Quick Setup (Pixelle-MCP):**
+**Quick Setup (Dynamic MCP - Recommended):**
+```bash
+pip install mcp
+claude mcp add --transport stdio --scope user comfyui-dynamic \
+    -- python ~/Applications/ai-model-docs/comfyui/comfyui_dynamic_mcp.py
+```
+
+**Alternative (Pixelle-MCP - for workflow templates):**
 ```bash
 pip install -U pixelle
-# Configure COMFYUI_BASE_URL in ~/.pixelle/.env
-pixelle
-# Add to Claude Code:
+pixelle  # Configure COMFYUI_BASE_URL in ~/.pixelle/.env
 claude mcp add --transport http --scope user pixelle http://localhost:9004/pixelle/mcp
 ```
 

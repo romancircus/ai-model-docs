@@ -1,8 +1,19 @@
 # Pixelle-MCP Setup Guide
 
-**Purpose:** Enable Claude Code to orchestrate ComfyUI as MCP tools for automated media pipelines.
+**Purpose:** Expose pre-made ComfyUI workflows as MCP tools for repeatable pipelines.
 
 **Last Updated:** January 2026
+
+---
+
+> **When to Use This vs Dynamic MCP:**
+>
+> | Approach | Use When |
+> |----------|----------|
+> | **Pixelle-MCP** (this doc) | You have specific workflows you run repeatedly (e.g., "always use Flux with these settings") |
+> | **[Dynamic MCP](./comfyui_dynamic_mcp.py)** | Claude needs to build arbitrary workflows from scratch based on user requests |
+>
+> **TL;DR:** Pixelle = workflow templates as tools. Dynamic = Claude builds workflows on-the-fly.
 
 ---
 
