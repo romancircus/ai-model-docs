@@ -2904,31 +2904,104 @@ workflow["lora_2"]["inputs"]["strength_clip"] = 0.4
 
 **Replaces:** ElevenLabs TTS ($5-330/month)
 
-ComfyUI supports text-to-speech (TTS) and voice cloning through custom nodes like F5-TTS and Kokoro-82M. This enables complete audio-visual pipelines without cloud API dependencies.
+ComfyUI supports text-to-speech (TTS) and voice cloning through custom nodes. The recommended models are **Qwen3-TTS** (best quality, multilingual) and **Chatterbox** (best for expressive English with emotion tags).
 
-### TTS Model Options
+### TTS Model Comparison (January 2026)
 
-| Model | Quality | Speed | Voice Cloning | VRAM |
-|-------|---------|-------|---------------|------|
-| **F5-TTS** | Excellent | Medium | Yes | ~4GB |
-| **Kokoro-82M** | Good | Fast | No | ~1GB |
-| **ChatTTS** | Good | Fast | Limited | ~2GB |
+| Model | Quality | Latency | Voice Cloning | Voice Design | Languages | VRAM |
+|-------|---------|---------|---------------|--------------|-----------|------|
+| **Qwen3-TTS 1.7B** | Excellent | 97ms | Yes (0.95 similarity) | Yes | 10 | ~4GB |
+| **Chatterbox** | Excellent | Fast | Yes | No | 23 (best: EN) | ~3GB |
+| **F5-TTS** | Good | Medium | Yes | No | EN/ZH | ~4GB |
+| **Kokoro-82M** | Good | Fast | No | No | EN | ~1GB |
 
-### Installation
+### Qwen3-TTS (Recommended)
 
+**Best for:** Multilingual TTS, voice cloning, AI-designed voices
+
+Qwen3-TTS from Alibaba achieves 0.95 voice similarity with just 3 seconds of reference audio. It uniquely supports **Voice Design** - describe a voice in natural language and the model creates it.
+
+**Model Variants:**
+| Variant | Use Case |
+|---------|----------|
+| `1.7B-CustomVoice` | 9 preset premium voices with emotion control |
+| `1.7B-VoiceDesign` | Create voices from text descriptions |
+| `1.7B-Base` | Voice cloning from reference audio |
+| `0.6B-CustomVoice` | Lightweight preset voices |
+
+**Preset Speakers (CustomVoice):**
+- English: Ryan, Aiden
+- Chinese: Vivian, Serena, Uncle_Fu, Dylan, Eric
+- Japanese: Ono_Anna
+- Korean: Sohee
+
+**Installation:**
 ```bash
 # Via ComfyUI Manager
-1. Open ComfyUI Manager
-2. Search: "F5-TTS" or "Kokoro"
-3. Install and restart ComfyUI
+1. Search: "Qwen3-TTS" or "ComfyUI-Qwen3-TTS"
+2. Install (by DarioFT or 1038lab)
+3. Restart ComfyUI
+# Models auto-download to ComfyUI/models/Qwen3-TTS/
+```
+
+### Chatterbox (Best for Expressive English)
+
+**Best for:** Podcasts, character voices, emotional content
+
+Chatterbox by Resemble AI supports **paralinguistic expressions** via tags:
+
+**Emotion Tags:**
+```
+[laugh], [sigh], [gasp], [chuckle], [cough], [sniff], [groan], [shush], [clear throat]
+```
+
+**Example:**
+```
+"I can't believe it worked! [laugh] This is absolutely amazing!"
+"[sigh] I suppose you're right about that."
+"[gasp] Did you see that?!"
+```
+
+**Installation:**
+```bash
+# Via ComfyUI Manager
+1. Search: "ChatterBox" or "ComfyUI_Fill-ChatterBox"
+2. Install
+3. Restart ComfyUI
+# Model downloads automatically on first use
 ```
 
 ### Templates Available
 
-| Template | Use Case |
-|----------|----------|
-| `audio_tts_f5.json` | Basic TTS (text to speech) |
-| `audio_tts_voice_clone.json` | Clone voice from reference audio |
+| Template | Model | Use Case |
+|----------|-------|----------|
+| `qwen3_tts_custom_voice.json` | Qwen3-TTS | Preset premium voices with emotion |
+| `qwen3_tts_voice_design.json` | Qwen3-TTS | Create voices from descriptions |
+| `qwen3_tts_voice_clone.json` | Qwen3-TTS | Clone voice from 3s reference |
+| `chatterbox_tts.json` | Chatterbox | Expressive English with emotion tags |
+| `audio_tts_f5.json` | F5-TTS | Basic TTS (legacy) |
+
+### TTS Selection Decision Tree
+
+```
+What do you need?
+│
+├── Multilingual content?
+│   └── Use Qwen3-TTS (10 languages)
+│
+├── Expressive English with laughs/sighs?
+│   └── Use Chatterbox (emotion tags)
+│
+├── Clone a specific voice?
+│   ├── Have reference audio? → Qwen3-TTS Voice Clone (0.95 similarity)
+│   └── No reference? → Qwen3-TTS Voice Design (describe the voice)
+│
+├── Need preset professional voice?
+│   └── Qwen3-TTS CustomVoice (Ryan, Vivian, etc.)
+│
+└── Fast iteration / low VRAM?
+    └── Kokoro-82M (1GB VRAM)
+```
 
 ### Audio-Video Sync Formula
 
@@ -2949,22 +3022,38 @@ Example:
 async def talking_head_pipeline(
     portrait_image: str,
     text_to_speak: str,
-    reference_voice: str = None
+    voice_mode: str = "preset",  # "preset", "clone", or "design"
+    reference_voice: str = None,
+    reference_text: str = None,
+    voice_description: str = None,
+    speaker: str = "Ryan",
+    emotion: str = ""
 ) -> str:
-    """Generate talking head video from portrait + text."""
+    """Generate talking head video from portrait + text using Qwen3-TTS."""
 
-    # Stage 1: Generate audio
-    if reference_voice:
-        tts_workflow = load_template("audio_tts_voice_clone")
+    # Stage 1: Generate audio with Qwen3-TTS
+    if voice_mode == "clone" and reference_voice:
+        # Voice cloning from reference audio
+        tts_workflow = load_template("qwen3_tts_voice_clone")
         tts_workflow = inject_parameters(tts_workflow, {
             "TEXT": text_to_speak,
             "REFERENCE_AUDIO": reference_voice,
-            "REFERENCE_TEXT": "...",  # Transcript of reference
+            "REFERENCE_TEXT": reference_text or "",
+        })
+    elif voice_mode == "design" and voice_description:
+        # AI-designed voice from description
+        tts_workflow = load_template("qwen3_tts_voice_design")
+        tts_workflow = inject_parameters(tts_workflow, {
+            "TEXT": text_to_speak,
+            "VOICE_DESCRIPTION": voice_description,
         })
     else:
-        tts_workflow = load_template("audio_tts_f5")
+        # Preset premium voice (default)
+        tts_workflow = load_template("qwen3_tts_custom_voice")
         tts_workflow = inject_parameters(tts_workflow, {
-            "TEXT": text_to_speak
+            "TEXT": text_to_speak,
+            "SPEAKER": speaker,
+            "INSTRUCT": emotion,  # e.g., "Very happy", "Calm"
         })
 
     tts_result = await execute_workflow(tts_workflow)
@@ -2986,6 +3075,33 @@ async def talking_head_pipeline(
 
     video_result = await execute_workflow(video_workflow)
     return video_result["outputs"][0]["asset_id"]
+
+
+# Usage examples:
+# 1. Preset voice with emotion
+await talking_head_pipeline(
+    portrait_image="character.png",
+    text_to_speak="Welcome to our channel!",
+    speaker="Ryan",
+    emotion="Excited and energetic"
+)
+
+# 2. Clone a specific voice
+await talking_head_pipeline(
+    portrait_image="character.png",
+    text_to_speak="New content in cloned voice",
+    voice_mode="clone",
+    reference_voice="my_voice_sample.wav",
+    reference_text="This is the transcript of the sample."
+)
+
+# 3. AI-designed voice
+await talking_head_pipeline(
+    portrait_image="character.png",
+    text_to_speak="Greetings, traveler.",
+    voice_mode="design",
+    voice_description="Deep, wise elderly narrator with gravelly undertones"
+)
 ```
 
 ### Voice Cloning Best Practices
@@ -3000,16 +3116,28 @@ async def talking_head_pipeline(
 ```
 TTS Generation Checklist
 │
-├── Reference audio clean? (no music, no noise)
-├── Reference text matches audio exactly?
-├── Generated text appropriate length? (< 500 chars)
-└── Speed setting reasonable? (0.8-1.2 typical)
+├── Using Qwen3-TTS?
+│   ├── Reference audio 3-10 seconds? (sweet spot: 5-7s)
+│   ├── Reference text EXACTLY matches spoken words?
+│   ├── Clear audio without background noise?
+│   └── Emotion instruction appropriate for content?
+│
+├── Using Chatterbox?
+│   ├── Text is in English? (best quality)
+│   ├── Emotion tags properly formatted? ([laugh], [sigh])
+│   ├── Exaggeration level appropriate? (0.3-0.7 typical)
+│   └── CFG weight balanced? (0.5 default)
+│
+└── General checks:
+    ├── Text length reasonable? (< 500 chars per chunk)
+    └── Language matches speaker/model?
 
 If quality poor:
 ├── Try different seed
-├── Reduce text length
-├── Use cleaner reference audio
-└── Switch to Kokoro for faster iteration
+├── Qwen3: Adjust emotion instruction
+├── Chatterbox: Adjust exaggeration level
+├── Voice clone: Use cleaner reference audio
+└── Switch models (Qwen3 ↔ Chatterbox) for different style
 ```
 
 ---
