@@ -122,6 +122,7 @@ When this repo is added as a submodule at `docs/ai-models/`:
 |------|---------|---------|
 | `comfyui/Get_Started_ComfyUI.md` | Node-based workflow guide | Image & video pipelines |
 | `comfyui/COMFYUI_ORCHESTRATION.md` | **Agent orchestration guide** | Programmatic workflow generation |
+| `comfyui/PIXELLE_MCP_SETUP.md` | **MCP integration guide** | Claude Code + ComfyUI tools |
 
 **Key ComfyUI Features:**
 - N.O.D.E. workflow framework (Navigate, Orchestrate, Diffuse, Export)
@@ -138,6 +139,13 @@ When this repo is added as a submodule at `docs/ai-models/`:
 - Complete Python client with error recovery
 - Model-specific settings (Flux, SDXL, Qwen, LTX)
 - S.A.C.S. prompting framework (Subject, Action, Context, Style)
+
+**For MCP Integration (PIXELLE_MCP_SETUP.md):**
+- Zero-code workflow → MCP tool conversion
+- Claude Code MCP server setup
+- Parameter DSL syntax (`$param.field!:description`)
+- Pre-built workflows (Flux, Qwen, Wan2.2, LTX)
+- Systemd service configuration
 
 ### Qwen Models (Alibaba)
 
@@ -193,6 +201,7 @@ When this repo is added as a submodule at `docs/ai-models/`:
 | CPU-only image generation | Qwen-Image-2512 GGUF | `qwen/Get_Started_Qwen_Image.md` |
 | Image with text rendering | Flux or Qwen-Image-2512 | `comfyui/Get_Started_ComfyUI.md` |
 | Node-based workflows | ComfyUI | `comfyui/Get_Started_ComfyUI.md` |
+| **Agent-orchestrated local gen** | Pixelle-MCP + ComfyUI | `comfyui/PIXELLE_MCP_SETUP.md` |
 
 ### Video Generation
 
@@ -223,6 +232,22 @@ When this repo is added as a submodule at `docs/ai-models/`:
 | Programmatic video creation | Remotion | `remotion/Get_Started_Remotion.md` |
 | Add overlays to AI video | Remotion | `remotion/Get_Started_Remotion.md` |
 | Batch video generation | Remotion Lambda | `remotion/Get_Started_Remotion.md` |
+
+### Agent Orchestration (Claude Code / Cursor)
+
+| Approach | Best For | Doc |
+|----------|----------|-----|
+| **Pixelle-MCP** (Recommended) | Zero-code workflow tools, web UI, multi-LLM | `comfyui/PIXELLE_MCP_SETUP.md` |
+| Direct API | Custom Python scripts, full control | `comfyui/COMFYUI_ORCHESTRATION.md` |
+
+**Quick Setup (Pixelle-MCP):**
+```bash
+pip install -U pixelle
+# Configure COMFYUI_BASE_URL in ~/.pixelle/.env
+pixelle
+# Add to Claude Code:
+claude mcp add --transport http --scope user pixelle http://localhost:9004/pixelle/mcp
+```
 
 ---
 
