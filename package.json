@@ -1,0 +1,18 @@
+{
+  "name": "ai-model-docs",
+  "version": "1.0.0",
+  "description": "Canonical documentation for AI models and services used across RomanCircus projects.",
+  "main": "index.js",
+  "scripts": {
+    "consult:kling": "node scripts/consult_kling_enrichment.js",
+    "check-freshness": "./scripts/check-freshness.sh"
+  },
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/romancircus/ai-model-docs/issues"
+  },
+  "homepage": "https://github.com/romancircus/ai-model-docs#readme",
+  "dependencies": {
+    "@google/genai": "^1.38.0"
+  }
+}
