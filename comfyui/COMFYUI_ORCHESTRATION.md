@@ -3,7 +3,22 @@
 **Purpose:** Enable coding agents (Claude Code, Cursor, etc.) to programmatically generate, execute, and iterate on ComfyUI workflows with near-perfect accuracy.
 
 **Last Updated:** January 2026
-**Version:** 3.0 (Agent-Orchestration Optimized)
+**Version:** 3.1 (MCP Integration)
+
+---
+
+## Related Documentation
+
+| Resource | Location | Purpose |
+|----------|----------|---------|
+| **MassMediaFactory MCP** | [GitHub](https://github.com/romancircus/comfyui-massmediafactory-mcp) | MCP server for workflow execution |
+| **Official Workflow Patterns** | [COMFYUI_OFFICIAL_WORKFLOWS.md](https://github.com/romancircus/comfyui-massmediafactory-mcp/blob/main/docs/COMFYUI_OFFICIAL_WORKFLOWS.md) | Node patterns from official sources |
+| **Node Reference** | [WORKFLOW_NODE_REFERENCE.md](https://github.com/romancircus/comfyui-massmediafactory-mcp/blob/main/docs/WORKFLOW_NODE_REFERENCE.md) | Complete node-by-node JSON for agent recreation |
+| **Improvement Plan** | [COMPREHENSIVE_IMPROVEMENT_PLAN.md](https://github.com/romancircus/comfyui-massmediafactory-mcp/blob/main/docs/COMPREHENSIVE_IMPROVEMENT_PLAN.md) | Gap analysis and roadmap |
+
+**Sources Verified:**
+- comfyanonymous.github.io/ComfyUI_examples (41 official categories)
+- github.com/Lightricks/ComfyUI-LTXVideo (6 official LTX-2 workflows)
 
 ---
 
