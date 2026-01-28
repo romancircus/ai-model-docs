@@ -140,6 +140,20 @@ for node_id, output in outputs.items():
             print(f"Output: {img['filename']}")
 ```
 
+> **Note: KSampler vs SamplerCustom**
+>
+> The example above uses `KSampler` which is fine for basic SDXL/SD1.5 workflows.
+> For **video models** (LTX, Wan) and **advanced architectures** (Flux), use the
+> `SamplerCustom` pattern which separates scheduler from sampler for model-specific
+> control. See [Common Patterns - SamplerCustom](#pattern-1-samplercustom-vs-ksampler)
+> in the official docs.
+>
+> **When to use SamplerCustom:**
+> - LTX-Video workflows (requires LTXVScheduler)
+> - Wan 2.1 video workflows
+> - Flux with custom resolution shifts
+> - Any workflow needing model-specific sigma values
+
 ---
 
 ## Workflow JSON Schema
