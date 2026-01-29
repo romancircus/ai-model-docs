@@ -205,12 +205,13 @@ Note: Prompt should describe MOTION, not the image content
 | **sampler** | euler | **res_2s** | res_2s produces higher quality for I2V |
 | **cfg** | 3.0-3.5 | **4.0** | Higher CFG for better motion in I2V |
 | **steps** | 20-30 | **25** | Balanced quality/speed |
-| **strength** | N/A | **0.6** | I2V identity preservation (0.5-0.7) |
+| **strength** | N/A | **1.0** | CRITICAL: Use 1.0 for actual motion (0.6 causes static videos!) |
 | **scheduler** | LTXVScheduler | LTXVScheduler | Same for both |
 
 **Key I2V Differences:**
 - Use `res_2s` sampler instead of euler for better motion quality
 - CFG 4.0 (not 3.0) to strengthen prompt adherence and increase visible motion
+- **strength=1.0 is REQUIRED for motion** - lower values (0.5-0.7) cause static output
 - Prompt should describe **motion only**, NOT the image content (the image is the visual anchor)
 
 ---
