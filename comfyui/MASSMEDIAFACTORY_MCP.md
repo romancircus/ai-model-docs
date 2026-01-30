@@ -234,9 +234,30 @@ result = regenerate(asset_id, cfg=4.5)
 | Template | Model | Type | Placeholders |
 |----------|-------|------|--------------|
 | `qwen_txt2img` | Qwen-Image-2512 | Text-to-Image | PROMPT, SEED, WIDTH, HEIGHT |
+| `qwen_edit_background` | Qwen Image Edit 2511 | Background Replacement | IMAGE_PATH, EDIT_PROMPT, SEED, CFG, STEPS |
 | `flux2_txt2img` | FLUX.2-dev | Text-to-Image | PROMPT, SEED, STEPS, CFG |
 | `ltx2_txt2vid` | LTX-2 19B | Text-to-Video | PROMPT, SEED, FRAMES |
 | `wan26_img2vid` | Wan 2.6 | Image-to-Video | IMAGE_PATH, PROMPT, SEED |
+
+**Qwen Edit Background Critical Settings:**
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| **CFG** | 2.0-2.5 | PRIMARY color control. >4 causes oversaturation |
+| **Denoise** | 1.0 (fixed) | Must be 1.0. Lower preserves original including background |
+| **Latent** | EmptyQwenImageLayeredLatentImage | NOT VAEEncode. VAEEncode fails for background replacement |
+
+```python
+# Example: Background replacement
+workflow = create_workflow_from_template("qwen_edit_background", {
+    "IMAGE_PATH": "uploaded_photo.png",
+    "EDIT_PROMPT": "Change the background to an outdoor playground. Keep the person exactly the same.",
+    "CFG": 2.0,  # CRITICAL: Keep low
+    "STEPS": 20,
+    "SEED": 42
+})
+result = execute_workflow(workflow)
+```
 
 ### Using Templates
 

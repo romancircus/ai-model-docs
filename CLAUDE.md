@@ -153,14 +153,23 @@ When this repo is added as a submodule at `docs/ai-models/`:
 | File | Content | Use For |
 |------|---------|---------|
 | `qwen/Get_Started_Qwen_Image.md` | Local image generation guide | CPU-friendly image generation |
+| `qwen/QWEN-IMAGE-EDIT-GUIDE.md` | Image editing workflow guide | Background replacement, scene editing |
 
 **Key Qwen Features:**
 - D.E.T.A.I.L. prompting framework
 - Qwen-Image-2512 for generation
+- **Qwen Image Edit 2511** for background replacement/scene editing
 - Qwen-VL for vision understanding
 - GGUF quantization (CPU deployment)
 - Superior face/text rendering
 - Ollama, vLLM deployment options
+
+**Qwen Edit Critical Settings (MUST FOLLOW):**
+| Setting | Value | Why |
+|---------|-------|-----|
+| CFG | **2.0-2.5** | PRIMARY color control. >4 = oversaturation |
+| Denoise | **1.0** | Must be 1.0 for background changes |
+| Latent | EmptyQwenImageLayeredLatentImage | NOT VAEEncode |
 
 ### LoRA Training
 
@@ -201,6 +210,8 @@ When this repo is added as a submodule at `docs/ai-models/`:
 | Local image generation | Qwen-Image-2512 | `qwen/Get_Started_Qwen_Image.md` |
 | CPU-only image generation | Qwen-Image-2512 GGUF | `qwen/Get_Started_Qwen_Image.md` |
 | Image with text rendering | Flux or Qwen-Image-2512 | `comfyui/Get_Started_ComfyUI.md` |
+| **Background replacement** | Qwen Image Edit 2511 | `qwen/QWEN-IMAGE-EDIT-GUIDE.md` |
+| **Scene editing (local)** | Qwen Image Edit 2511 | `qwen/QWEN-IMAGE-EDIT-GUIDE.md` |
 | Node-based workflows | ComfyUI | `comfyui/Get_Started_ComfyUI.md` |
 | **Agent-orchestrated local gen** | MassMediaFactory MCP + ComfyUI | `comfyui/comfyui_massmediafactory_mcp.py` |
 
